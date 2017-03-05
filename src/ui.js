@@ -198,11 +198,10 @@ const PlayerUI = new Lang.Class({
 
     if (Settings.MINOR_VERSION > 19) {
       this.stockMpris = Main.panel.statusArea.dateMenu._messageList._mediaSection;
+      //Monkey patch
+      this.stockMprisOldShouldShow = this.stockMpris._shouldShow;
+      
     }
-  },
-
-  shouldShowOverride: function(player, newState) {
-    return false;
   },
 
   update: function(player, newState) {
@@ -210,10 +209,14 @@ const PlayerUI = new Lang.Class({
     if (newState.hideStockMpris !== null) {
       if (this.stockMpris) {
         if (newState.hideStockMpris) {
+          this.stockMpris._shouldShow = function() {return false;};
           this.stockMpris.actor.hide();
         }
-        else if (this.stockMpris._shouldShow()) {
-          this.stockMpris.actor.show();
+        else {
+          this.stockMpris._shouldShow = this.stockMprisOldShouldShow;
+          if (this.stockMpris._shouldShow()) {
+            this.stockMpris.actor.show();
+          }
         }
       }
     }
@@ -446,20 +449,18 @@ const PlayerUI = new Lang.Class({
   },
 
   changeCover: function(state) {
-    let coverIcon = null
+    let coverIcon;
     if (state.isRadio) {
       coverIcon = new St.Icon({icon_name: "radio",
                               icon_size: this.trackCover.child.icon_size});
     }
     else if (state.trackCoverUrl) {
       let file = Gio.File.new_for_uri(state.trackCoverUrl);
-      if (file.query_exists(null)) {
-        let gicon = new Gio.FileIcon({file: file});
-        coverIcon = new St.Icon({gicon: gicon, style_class: "track-cover",
-                                     icon_size: this.trackCover.child.icon_size});
-      }
+      let gicon = new Gio.FileIcon({file: file});
+      coverIcon = new St.Icon({gicon: gicon, style_class: "track-cover",
+                               icon_size: this.trackCover.child.icon_size});
     }
-    if (!coverIcon) {
+    else {
       coverIcon = new St.Icon({icon_name: "media-optical-cd-audio",
                               icon_size: this.trackCover.child.icon_size});
     }
@@ -481,7 +482,7 @@ const PlayerUI = new Lang.Class({
     }
 
     Tweener.addTween(this.trackCover.child, {icon_size: targetSize,
-                                             time: 0.3,
+                                             time: Settings.FADE_ANIMATION_TIME,
                                              transition: transition,
                                              onComplete: Lang.bind(this, function() {
                                                if (targetSize == this.smallCoverSize) { 
