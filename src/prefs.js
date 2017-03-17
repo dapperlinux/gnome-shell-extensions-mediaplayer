@@ -33,7 +33,6 @@ let settings_indicator;
 function init() {
     Lib.initTranslations(Me);
     gsettings = Lib.getSettings(Me);
-    let maxMenuPosition  = gsettings.get_int('num-menuitems');
     settings = {
         indicator_position: {
             type: "e",
@@ -57,19 +56,10 @@ function init() {
             label: _("Indicator status text"),
             help: _("{trackArtist}: Artist, {trackAlbum}: Album, {trackTitle}: Title. Pango markup supported.")
         },
-        menu_position: {
-            type: "i",
-            label: _("Position in the system menu"),
-            help: _("Position of the extension in the system menu from top to bottom. Default is 9th."),
-            min: 1,
-            max: maxMenuPosition,
-            step: 1,
-            default: 9
-        },
         status_size: {
             type: "i",
             label: _("Indicator status text width"),
-            help: _("The the maximum width before the status text gets an ellipsis. Default is 300px."),
+            help: _("The maximum width before the status text gets an ellipsis. Default is 300px."),
             min: 100,
             max: 900,
             step: 5,
@@ -95,7 +85,7 @@ function init() {
         },
         rundefault: {
             type: "b",
-            label: _("Allow to start the default media player"),
+            label: _("Allow the starting of the default media player")
         },
         volume: {
             type: "b",
@@ -107,12 +97,23 @@ function init() {
         },
         playlists: {
             type: "b",
-            label: _("Show media player playlists")
+            label: _("Show the media player playlists"),
+            help: _("Few players currently support the Mpris Playlist Interface.")
+        },
+        tracklist: {
+            type: "b",
+            label: _("Show the media player tracklist"),
+            help: _("Very few players currently support the Mpris Tracklist Interface.")
         },
         rating: {
             type: "b",
-            label: _("Display song rating"),
+            label: _("Display the current song's rating"),
             help: _("Display the currently playing song's rating on a 0 to 5 scale")
+        },
+        tracklist_rating: {
+            type: "b",
+            label: _("Display song ratings in the tracklist"),
+            help: _("Display the ratings of the songs in tracklist on a 0 to 5 scale")
         },
         enable_scroll: {
             type: "b",
@@ -124,8 +125,8 @@ function init() {
     if (Gtk.get_minor_version() > 19) {
       settings.hide_stockmpris = {
         type: "b",
-        label: _("Hide the built-in Mpris applet (Experimental)"),
-        help: _("Whether to hide the built-in Mpris applet.\nThis depends on implementation details within GNOME Shell that may change.")
+        label: _("Hide the built-in Mpris controls (Experimental)"),
+        help: _("Whether to hide the built-in Mpris controls.\nThis depends on implementation details within GNOME Shell that may change.")
       };
     } 
 }
@@ -224,10 +225,6 @@ function createStringSetting(settings, setting) {
     setting_string.connect('notify::text', function(entry) {
         gsettings.set_string(setting.replace('_', '-'), entry.text);
     });
-
-    if (settings[setting].mode == "passwd") {
-        setting_string.set_visibility(false);
-    }
 
     if (settings[setting].help) {
         setting_label.set_tooltip_text(settings[setting].help);
