@@ -91,7 +91,6 @@ function parseMetadata(metadata, state) {
   if (metadata === null || Object.keys(metadata).length < 2) {
     return;
   }
-
   state.trackUrl = metadata["xesam:url"] ? metadata["xesam:url"].unpack() : "";
   state.trackArtist = metadata["xesam:artist"] ? metadata["xesam:artist"].deep_unpack() : ["Unknown artist"];
   state.trackAlbum = metadata["xesam:album"] ? metadata["xesam:album"].unpack() : "Unknown album";
