@@ -121,12 +121,8 @@ const IndicatorMixin = {
       }
     }
 
-    if (state.trackCoverUrl !== null) {
-      let desktopEntry = ''
-      if(state.desktopEntry) {
-        desktopEntry = state.desktopEntry;
-      }
-      this._setPrimaryIndicatorIcon(state.trackCoverUrl, desktopEntry);
+    if (state.trackCoverUrl !== null || state.desktopEntry !== null) {
+      this._setPrimaryIndicatorIcon(state.trackCoverUrl, state.desktopEntry);
     }
     this._onActivePlayerUpdate(state);
   },
@@ -187,17 +183,6 @@ const PanelIndicator = new Lang.Class({
     this.currentCoverUrl = '';
     this.currentDesktopEntry = '';
 
-    this._settings.connect("changed::" + Settings.MEDIAPLAYER_RUN_DEFAULT,
-      Lang.bind(this, function() {
-        let runDefault = this._settings.get_boolean(Settings.MEDIAPLAYER_RUN_DEFAULT);
-        if (runDefault) {
-          this.actor.show();
-        }
-        else if (!this.manager.activePlayer) {
-          this.actor.hide();
-        }
-    }));
-
     this.menu.actor.add_style_class_name('mediaplayer-menu');
 
     this.indicators = new St.BoxLayout({vertical: false});
@@ -219,9 +204,7 @@ const PanelIndicator = new Lang.Class({
     this.actor.add_actor(this.indicators);
     this.actor.add_style_class_name('panel-status-button');
     this.actor.connect('scroll-event', Lang.bind(this, this._onScrollEvent));
-    if (!this._settings.get_boolean(Settings.MEDIAPLAYER_RUN_DEFAULT)) {
-      this.actor.hide();
-    }
+    this.actor.hide();
   },
 
   // Override PanelMenu.Button._onEvent
@@ -237,9 +220,7 @@ const PanelIndicator = new Lang.Class({
   },
 
   _onActivePlayerRemove: function() {
-    if (!Settings.gsettings.get_boolean(Settings.MEDIAPLAYER_RUN_DEFAULT)) {
-      this.actor.hide();
-    }
+    this.actor.hide();
   }
 
 });
@@ -279,14 +260,26 @@ const AggregateMenuIndicator = new Lang.Class({
     this.indicators.connect('button-press-event', Lang.bind(this, this._onButtonEvent));
 
     this.indicators.hide();
+    this._settings.connect("changed::" + Settings.MEDIAPLAYER_HIDE_AGGINDICATOR_KEY, Lang.bind(this, function() {
+      let alwaysHide = this._settings.get_boolean(Settings.MEDIAPLAYER_HIDE_AGGINDICATOR_KEY);
+      if (alwaysHide) {
+        this.indicators.hide();
+        this.indicators.set_width(0);
+      }
+      else if (this.manager.activePlayer && this.manager.activePlayer.state.status != Settings.Status.STOP) {
+        this.indicators.show();
+        this.indicators.set_width(-1);
+      }
+    }));
   },
 
   _onActivePlayerUpdate: function(state) {
-    if (state.status && state.status === Settings.Status.STOP) {
+    let alwaysHide = this._settings.get_boolean(Settings.MEDIAPLAYER_HIDE_AGGINDICATOR_KEY);
+    if (state.status && state.status === Settings.Status.STOP || alwaysHide) {
       this.indicators.hide();
       this.indicators.set_width(0);
     }
-    else if (state.status) {
+    else if (state.status && !alwaysHide) {
       this.indicators.show();
       this.indicators.set_width(-1);
     }
@@ -294,6 +287,7 @@ const AggregateMenuIndicator = new Lang.Class({
 
   _onActivePlayerRemove: function() {
     this.indicators.hide();
+    this.indicators.set_width(0);
   }
 });
 Lib._extends(AggregateMenuIndicator, IndicatorMixin);

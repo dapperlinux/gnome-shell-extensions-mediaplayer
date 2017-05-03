@@ -7,12 +7,16 @@
   <enum id='org.gnome.shell.extensions.mediaplayer.status-type'>
     <value nick='icon' value='0'/>
     <value nick='cover' value='1'/>
-    <value nick='icon-fullcolor' value='2'/>
   </enum>
   <schema id="org.gnome.shell.extensions.mediaplayer" path="/org/gnome/shell/extensions/mediaplayer/">
     <key name="indicator-position" enum="org.gnome.shell.extensions.mediaplayer.positions">
         <default>'volume-menu'</default>
         <_summary>Where to display the indicator (center, right, volume menu)</_summary>
+    </key>
+    <key name="hide-aggindicator" type="b">
+        <default>false</default>
+        <_summary>Always hide the indicator in the system menu</_summary>
+        <_description>Whether to always hide the indicator in the system menu.</_description>
     </key>
     <key name="volume" type="b">
         <default>false</default>
@@ -33,11 +37,6 @@
         <default>false</default>
         <_summary>Show media player tracklist</_summary>
         <_description>Whether to show the tracklist of the mediaplayers.</_description>
-    </key>
-    <key name="rundefault" type="b">
-        <default>false</default>
-        <_summary>Allow to start the default media player</_summary>
-        <_description>Starts the default mediaplayer by clicking on the media player status icon.</_description>
     </key>
     <key type="b" name="rating">
     	<default>false</default>

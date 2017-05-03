@@ -34,11 +34,11 @@ const MEDIAPLAYER_STATUS_TYPE_KEY = 'status-type';
 const MEDIAPLAYER_STATUS_TEXT_KEY = 'status-text';
 const MEDIAPLAYER_STATUS_SIZE_KEY = 'status-size';
 const MEDIAPLAYER_VOLUME_KEY = 'volume';
+const MEDIAPLAYER_HIDE_AGGINDICATOR_KEY = 'hide-aggindicator';
 const MEDIAPLAYER_POSITION_KEY = 'position';
 const MEDIAPLAYER_PLAYLISTS_KEY = 'playlists';
 const MEDIAPLAYER_TRACKLIST_KEY = 'tracklist';
 const MEDIAPLAYER_TRACKLIST_RATING_KEY = 'tracklist-rating';
-const MEDIAPLAYER_RUN_DEFAULT = 'rundefault';
 const MEDIAPLAYER_RATING_KEY = 'rating';
 const MEDIAPLAYER_TRACKBOX_TEMPLATE = 'trackbox-template';
 const MEDIAPLAYER_SMALL_COVER_SIZE_KEY = 'small-cover';
@@ -78,7 +78,12 @@ const ALTERNATIVE_TRACKLIST_TITLES = [
 ];
 
 const PLAYERS_THAT_CANT_STOP = [
-    "Pithos"
+    "Pithos",
+    "Spotify"
+];
+
+const BROKEN_PLAYERS = [
+    "Spotify"
 ];
 
 const IndicatorStatusType = {

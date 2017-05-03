@@ -83,9 +83,10 @@ function init() {
             step: 1,
             default: 48
         },
-        rundefault: {
+        hide_aggindicator: {
             type: "b",
-            label: _("Allow the starting of the default media player")
+            label: _("Always hide the indicator in the system menu"),
+            help: _("Whether to always hide the panel indicator when the extension is in the system menu.")
         },
         volume: {
             type: "b",
