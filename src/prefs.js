@@ -83,6 +83,16 @@ function init() {
             step: 1,
             default: 48
         },
+        start_zoomed: {
+            type: "b",
+            label: _("Start with the cover zoomed"),
+            help: _("Always start with the cover zoomed out (Large).")
+        },
+        raise_click: {
+            type: "b",
+            label: _("Raise the Player when the cover is clicked"),
+            help: _("Raise the Player when the cover is clicked instead of zooming in or out.")
+        },
         hide_aggindicator: {
             type: "b",
             label: _("Always hide the indicator in the system menu"),
@@ -143,6 +153,15 @@ function buildPrefsWidget() {
         hbox = buildHbox(settings, setting);
         vbox.add(hbox);
     }
+
+    let githubHbox = new Gtk.Box({orientation: Gtk.Orientation.HORIZONTAL,
+                                  margin_top: 5});
+
+    let githubButton = new Gtk.LinkButton({label: _("Visit the GitHub page to file a bug report or request a feature."),
+                                           uri: 'https://github.com/eonpatapon/gnome-shell-extensions-mediaplayer/wiki/Bug-Reports-and-Feature-Requests'});
+
+    githubHbox.pack_start(githubButton, true, true, 0);
+    vbox.add(githubHbox);
 
     frame.add(vbox);
     frame.show_all();

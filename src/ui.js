@@ -104,6 +104,7 @@ const PlayerUI = new Lang.Class({
     this.showTracklist = false;
     this.showTracklistRating = false;
     this.hasTrackList = false;
+    this.trackLength = 0;
 
     this.oldShouldShow = null;
     //Broken Players never get anything beyond the most basic functionality
@@ -112,12 +113,20 @@ const PlayerUI = new Lang.Class({
     this.largeCoverSize = Settings.gsettings.get_int(Settings.MEDIAPLAYER_LARGE_COVER_SIZE_KEY);
     this.smallCoverSize = Settings.gsettings.get_int(Settings.MEDIAPLAYER_SMALL_COVER_SIZE_KEY);
 
-    this.trackCover = new St.Button({child: new St.Icon({icon_name: "media-optical-cd-audio-symbolic",
-                                                         icon_size: this.smallCoverSize})});
+    this.trackCover = new St.Button({child: new St.Icon({icon_name: "media-optical-cd-audio-symbolic"})});
     if (Settings.MINOR_VERSION > 19) {
       this.trackCover.child.add_style_class_name('media-message-cover-icon fallback no-padding');
     }
-    this.trackCover.connect('clicked', Lang.bind(this, this._toggleCover));
+
+    this.trackCover.connect('clicked', Lang.bind(this, function(actor, button) {
+      if (Settings.gsettings.get_boolean(Settings.MEDIAPLAYER_RAISE_ON_CLICK_KEY)) {
+        this.menu._getTopMenu().close();
+        this.player.raise();
+      }
+      else {
+        this._toggleCover();
+      }
+    }));
 
     this.trackBox = new Widget.TrackBox(this.trackCover);
     this.trackBox.connect('activate', Lang.bind(this.player, this.player.raise));
@@ -131,7 +140,6 @@ const PlayerUI = new Lang.Class({
 
     this.secondaryInfo = new Widget.SecondaryInfo();
     this.secondaryInfo.connect('activate', Lang.bind(this.player, this.player.raise));
-    this.secondaryInfo.hide();
     this.addMenuItem(this.secondaryInfo);
         
     this.trackControls = new Widget.PlayerButtons();
@@ -167,13 +175,15 @@ const PlayerUI = new Lang.Class({
     this.playlists = null;
     if (!this.playerIsBroken) {
       this.position = new Widget.SliderItem("document-open-recent-symbolic", 0);
-      this.position.connect('value-changed', Lang.bind(this, function(item) {
+      this.position.connect('activate', Lang.bind(this.player, this.player.raise))
+      this.position.sliderConnect('value-changed', Lang.bind(this, function(item) {
         this.player.seek(item._value);
       }));
       this.addMenuItem(this.position);
 
       this.volume = new Widget.SliderItem("audio-volume-high-symbolic", 0);
-      this.volume.connect('value-changed', Lang.bind(this, function(item) {
+      this.volume.connect('activate', Lang.bind(this.player, this.player.raise))
+      this.volume.sliderConnect('value-changed', Lang.bind(this, function(item) {
         this.player.setVolume(item._value);
       }));
       this.addMenuItem(this.volume);
@@ -203,6 +213,15 @@ const PlayerUI = new Lang.Class({
       this.stockMprisOldShouldShow = this.stockMpris._shouldShow;
       
     }
+
+    if (Settings.gsettings.get_boolean(Settings.MEDIAPLAYER_START_ZOOMED_KEY)) {
+      this.trackCover.child.icon_size = this.largeCoverSize;
+      this.trackBox.infos.hide();      
+    }
+    else {
+      this.trackCover.child.icon_size = this.smallCoverSize;
+      this.secondaryInfo.hide();
+    } 
   },
 
   update: function(player, newState) {
@@ -255,9 +274,13 @@ const PlayerUI = new Lang.Class({
       }
     }
 
+    if (newState.trackLength !== null) {
+      this.trackLength = newState.trackLength;
+    }
+
     if (newState.showPosition !== null && this.position !== null) {
       this.showPosition = newState.showPosition;
-      if (this.showPosition && newState.trackLength && newState.trackLength !== 0) {
+      if (this.showPosition && this.trackLength !== 0) {
         this.position.actor.show();
       }
       else {
@@ -365,11 +388,11 @@ const PlayerUI = new Lang.Class({
     }
 
     if (newState.trackTime !== null && this.position !== null) {
-      if (!newState.trackLength || newState.trackLength === 0) {
+      if (this.trackLength === 0) {
         this.position.actor.hide();
       }
       else {
-        this.position.setValue(newState.trackTime / newState.trackLength);
+        this.position.setValue(newState.trackTime / this.trackLength);
       }
     }
 
