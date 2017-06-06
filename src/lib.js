@@ -21,6 +21,7 @@ const Gio = imports.gi.Gio;
 const GLib = imports.gi.GLib;
 const Gtk = imports.gi.Gtk;
 const Gettext = imports.gettext;
+const Pango = imports.gi.Pango;
 
 function getSettings(extension) {
     let schemaName = 'org.gnome.shell.extensions.mediaplayer';
@@ -95,7 +96,6 @@ function parseMetadata(metadata, state) {
   state.trackArtist = metadata["xesam:artist"] ? metadata["xesam:artist"].deep_unpack() : ["Unknown artist"];
   state.trackAlbum = metadata["xesam:album"] ? metadata["xesam:album"].unpack() : "Unknown album";
   state.trackTitle = metadata["xesam:title"] ? metadata["xesam:title"].unpack() : "Unknown title";
-  state.trackNumber = metadata["xesam:trackNumber"] ? metadata["xesam:trackNumber"].unpack() : "";
   state.trackLength = metadata["mpris:length"] ? metadata["mpris:length"].unpack() / 1000000 : 0;
   state.trackObj = metadata["mpris:trackid"] ? metadata["mpris:trackid"].unpack() : "/org/mpris/MediaPlayer2/TrackList/NoTrack";
   state.trackCoverUrl = metadata["mpris:artUrl"] ? metadata["mpris:artUrl"].unpack() : "";
@@ -122,14 +122,25 @@ function parseMetadata(metadata, state) {
 };
 
 let compileTemplate = function(template, playerState) {
-  return template.replace(/{(\w+)\|?([^}]*)}/g, function(match, fieldName, appendText) {
+  let escapedText = template.replace(/{(\w+)\|?([^}]*)}/g, function(match, fieldName, appendText) {
     let text = "";
-    if (playerState[fieldName]) {
+    if (playerState[fieldName] && playerState[fieldName].toString() !== "") {
       text = playerState[fieldName].toString() + appendText;
       text = GLib.markup_escape_text(text, -1);
     }
     return text;
   });
+  //Validate Pango markup.
+  try {
+    let validMarkup = Pango.parse_markup(escapedText, -1, '')[0];
+    if (!validMarkup) {
+      escapedText = 'Invalid Syntax';
+    }        
+  }
+  catch(err) {
+    escapedText = 'Invalid Syntax';
+  }
+  return escapedText;
 };
 
 let _extends = function(object1, object2) {

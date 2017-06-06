@@ -26,9 +26,7 @@ const Config = imports.misc.config;
 
 const Gettext = imports.gettext.domain('gnome-shell-extensions-mediaplayer');
 const _ = Gettext.gettext;
-const N_ = function(t) { return t; };
 
-const MEDIAPLAYER_SETTINGS_SCHEMA = 'org.gnome.shell.extensions.mediaplayer';
 const MEDIAPLAYER_INDICATOR_POSITION_KEY = 'indicator-position';
 const MEDIAPLAYER_STATUS_TYPE_KEY = 'status-type';
 const MEDIAPLAYER_STATUS_TEXT_KEY = 'status-text';
@@ -40,7 +38,6 @@ const MEDIAPLAYER_PLAYLISTS_KEY = 'playlists';
 const MEDIAPLAYER_TRACKLIST_KEY = 'tracklist';
 const MEDIAPLAYER_TRACKLIST_RATING_KEY = 'tracklist-rating';
 const MEDIAPLAYER_RATING_KEY = 'rating';
-const MEDIAPLAYER_TRACKBOX_TEMPLATE = 'trackbox-template';
 const MEDIAPLAYER_SMALL_COVER_SIZE_KEY = 'small-cover';
 const MEDIAPLAYER_LARGE_COVER_SIZE_KEY = 'large-cover';
 const MEDIAPLAYER_ENABLE_SCROLL_EVENTS_KEY = 'enable-scroll';
@@ -59,10 +56,9 @@ const IndicatorPosition = {
 const FADE_ANIMATION_TIME = 0.25;
 
 const Status = {
-    STOP: N_("Stopped"),
-    PLAY: N_("Playing"),
-    PAUSE: N_("Paused"),
-    RUN: "Run"
+    STOP: "Stopped",
+    PLAY: "Playing",
+    PAUSE: "Paused"
 };
 
 const SEND_STOP_ON_CHANGE = [
@@ -92,8 +88,6 @@ const IndicatorStatusType = {
     ICON: 0,
     COVER: 1
 };
-
-const DEFAULT_PLAYER_OWNER = "org.gnome.shell.extensions.mediaplayer";
 
 let gsettings;
 

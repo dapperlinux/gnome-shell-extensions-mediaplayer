@@ -93,7 +93,6 @@ const PlayerUI = new Lang.Class({
     this.icon.icon_name = 'audio-x-generic-symbolic';
     this.player = player;
     this.setCoverIconAsync = Lib.setCoverIconAsync;
-    this.compileTemplate = Lib.compileTemplate;
     this._updateId = player.connect("player-update", Lang.bind(this, this.update));
     this._updateInfoId = player.connect("player-update-info", Lang.bind(this, this.updateInfo));
 
@@ -120,8 +119,8 @@ const PlayerUI = new Lang.Class({
 
     this.trackCover.connect('clicked', Lang.bind(this, function(actor, button) {
       if (Settings.gsettings.get_boolean(Settings.MEDIAPLAYER_RAISE_ON_CLICK_KEY)) {
-        this.menu._getTopMenu().close();
         this.player.raise();
+        this.menu._getTopMenu().close();
       }
       else {
         this._toggleCover();
@@ -322,15 +321,9 @@ const PlayerUI = new Lang.Class({
       this.trackRatings.rate(newState.trackRating);
     }
 
-    if (newState.trackTitle !== null || newState.trackArtist !== null || newState.trackAlbum !== null) {
-      this.trackBox.empty();
-      this.secondaryInfo.empty();
-      JSON.parse(Settings.gsettings.get_string(Settings.MEDIAPLAYER_TRACKBOX_TEMPLATE))
-      .forEach(Lang.bind(this, function(trackInfo) {
-        let text = this.compileTemplate(trackInfo.template, newState);
-        this.trackBox.addInfo(new Widget.TrackInfo(text, trackInfo.style_class));
-        this.secondaryInfo.addInfo(new Widget.TrackInfo(text, trackInfo.style_class));
-      }));
+    if (newState.trackArtist !== null) {
+      this.trackBox.updateInfo(newState);
+      this.secondaryInfo.updateInfo(newState);
     }
 
     if (newState.volume !== null && this.volume !== null) {
@@ -396,14 +389,14 @@ const PlayerUI = new Lang.Class({
       }
     }
 
-    if (newState.status) {
-      let status = newState.status;
-      // g-s 3.16
-      if (this.status) {
-        this.status.text = _(status);
-      }
+    if (newState.status !== null) {
 
-      if (status == Settings.Status.STOP) {
+      if (newState.status === Settings.Status.STOP) {
+        if (this.stopButton) {
+          this.stopButton.hide();
+        }
+        this.playButton.show();
+        this.playButton.setIcon('media-playback-start-symbolic');
         this.trackBox.hideAnimate();
         this.secondaryInfo.hideAnimate();
         if (!this.playerIsBroken) {
@@ -430,7 +423,7 @@ const PlayerUI = new Lang.Class({
         }
       }
 
-      if (status === Settings.Status.PLAY) {
+      if (newState.status === Settings.Status.PLAY) {
         if (this.stopButton) {
           this.stopButton.show();
         }
@@ -442,14 +435,7 @@ const PlayerUI = new Lang.Class({
           this.playButton.hide();
         }
       }
-      else if (status === Settings.Status.PAUSE) {
-        this.playButton.setIcon('media-playback-start-symbolic');
-      }
-      else if (status == Settings.Status.STOP) {
-        if (this.stopButton) {
-          this.stopButton.hide();
-        }
-        this.playButton.show();
+      if (newState.status === Settings.Status.PAUSE) {
         this.playButton.setIcon('media-playback-start-symbolic');
       }
     }

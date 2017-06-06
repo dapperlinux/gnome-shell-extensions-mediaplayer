@@ -54,7 +54,7 @@ function init() {
         status_text: {
             type: "s",
             label: _("Indicator status text"),
-            help: _("{trackArtist}: Artist, {trackAlbum}: Album, {trackTitle}: Title. Pango markup supported.")
+            help: _("{playerName}: Player Name, {trackArtist}: Artist, {trackAlbum}: Album, {trackTitle}: Title. Pango markup supported.")
         },
         status_size: {
             type: "i",
@@ -158,7 +158,7 @@ function buildPrefsWidget() {
                                   margin_top: 5});
 
     let githubButton = new Gtk.LinkButton({label: _("Visit the GitHub page to file a bug report or request a feature."),
-                                           uri: 'https://github.com/eonpatapon/gnome-shell-extensions-mediaplayer/wiki/Bug-Reports-and-Feature-Requests'});
+                                           uri: 'https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Bug-Reports-and-Feature-Requests'});
 
     githubHbox.pack_start(githubButton, true, true, 0);
     vbox.add(githubHbox);

@@ -52,6 +52,7 @@ const PlayerState = new Lang.Class({
     }
   },
 
+  playerName: null,
   status: null,
 
   playlist: null,
@@ -62,7 +63,6 @@ const PlayerState = new Lang.Class({
 
   trackTime: null,
   trackTitle: null,
-  trackNumber: null,
   trackAlbum: null,
   trackArtist: null,
   trackUrl: null,
@@ -123,6 +123,8 @@ const MPRISPlayer = new Lang.Class({
 
         this._timerId = 0;
         this._statusId = 0;
+        this._playlistTimeOutId = 0;
+        this._tracklistTimeOutId = 0;
 
         this._settings = Settings.gsettings;
         this.parseMetadata = Lib.parseMetadata;
@@ -331,15 +333,17 @@ const MPRISPlayer = new Lang.Class({
 
           if (props.PlaybackStatus) {
             let status = props.PlaybackStatus.unpack();
-            if (Settings.SEND_STOP_ON_CHANGE.indexOf(this.busName) != -1) {
+            if (Settings.SEND_STOP_ON_CHANGE.indexOf(this.busName) != -1 && status == Settings.Status.STOP) {
               // Some players send a "PlaybackStatus: Stopped" signal when changing
-              // tracks, so wait a little before refreshing.
+              // tracks, so wait a little before refreshing if they send a "Stopped" signal.
               if (this._statusId !== 0) {
                 Mainloop.source_remove(this._statusId);
                 this._statusId = 0;
               }
-              this._statusId = Mainloop.timeout_add(500, Lang.bind(this, function() {
-                this.emit('player-update', new PlayerState({status: status}));
+              this._statusId = Mainloop.timeout_add_seconds(1, Lang.bind(this, function() {
+                this._getPlayBackStatus();
+                this._statusId = 0;
+                return false;
               }));
             }
             else {
@@ -399,9 +403,9 @@ const MPRISPlayer = new Lang.Class({
 
     populate: function() {
       let newState = new PlayerState({
-        canPause: this._mediaServerPlayer.CanPause || true,
-        canGoNext: this._mediaServerPlayer.CanGoNext || true,
-        canGoPrevious: this._mediaServerPlayer.CanGoPrevious || true,
+        canPause: this._mediaServerPlayer.CanPause ? this._mediaServerPlayer.CanPause === (true || false): true,
+        canGoNext: this._mediaServerPlayer.CanGoNext ? this._mediaServerPlayer.CanGoNext === (true || false): true,
+        canGoPrevious: this._mediaServerPlayer.CanGoPrevious ? this._mediaServerPlayer.CanGoPrevious === (true || false): true,
         canSeek: this._mediaServerPlayer.CanSeek || false,
         hasTrackList: this._mediaServer.HasTrackList || false,
         showVolume: this._settings.get_boolean(Settings.MEDIAPLAYER_VOLUME_KEY),
@@ -410,11 +414,11 @@ const MPRISPlayer = new Lang.Class({
         showPlaylist: this._settings.get_boolean(Settings.MEDIAPLAYER_PLAYLISTS_KEY),
         showTracklist: this._settings.get_boolean(Settings.MEDIAPLAYER_TRACKLIST_KEY),
         showTracklistRating: this._settings.get_boolean(Settings.MEDIAPLAYER_TRACKLIST_RATING_KEY),
-        volume: this._mediaServerPlayer.Volume,
-        status: this._mediaServerPlayer.PlaybackStatus,
-        orderings: this._checkOrderings(this._mediaServerPlaylists.Orderings)
+        volume: this._mediaServerPlayer.Volume || 0.0,
+        status: this._mediaServerPlayer.PlaybackStatus || Settings.Status.STOP,
+        orderings: this._checkOrderings(this._mediaServerPlaylists.Orderings),
+        playerName: this._mediaServer.Identity || ''
       });
-
       if (this._mediaServerPlaylists.ActivePlaylist) {
         newState.playlist = this._mediaServerPlaylists.ActivePlaylist[1][0];
       }
@@ -427,14 +431,20 @@ const MPRISPlayer = new Lang.Class({
 
       this.emit('player-update', newState);
       
-      //Delay call 100ms because some players make the interface available without data available in the beginning
-      Mainloop.timeout_add(100, Lang.bind(this, function() {
+      //Delay calls 1 sec because some players make the interface available without data available in the beginning
+      this._playlistTimeOutId = Mainloop.timeout_add_seconds(1, Lang.bind(this, function() {
+        this._playlistTimeOutId = 0;
         this._getPlaylists();
-        if (this.state.hasTrackList) {
-          this._getTracklist();
-        }
         return false;
-      }), null);
+      }));
+
+      if (newState.hasTrackList) {
+        this._tracklistTimeOutId = Mainloop.timeout_add_seconds(1, Lang.bind(this, function() {
+          this._tracklistTimeOutId = 0;
+          this._getTracklist();
+          return false;
+        }));
+      }
 
       this._getPlayerInfo();
 
@@ -603,6 +613,21 @@ const MPRISPlayer = new Lang.Class({
     
     },
 
+    _getPlayBackStatus: function() {
+      this._prop.GetRemote('org.mpris.MediaPlayer2.Player', 'PlaybackStatus',
+                           Lang.bind(this, function(value, err) {
+                             if (!err) {
+                               let status = value[0].unpack();
+                               if (this.state.status != status) {
+                                 this.emit('player-update', 
+                                           new PlayerState({status: status}));
+                               }
+                             }
+                           })
+                          );
+    
+    },
+
     _checkOrderings: function(maybeOrderings) {
       let orderings = ['Alphabetical'];
       if (Array.isArray(maybeOrderings) && maybeOrderings.length > 0)
@@ -611,6 +636,12 @@ const MPRISPlayer = new Lang.Class({
     },
 
     _getPlaylists: function() {
+      // A player may have trigger the fetching of a playlist
+      // before our initial startup timeout happens.
+      if (this._playlistTimeOutId !== 0) {
+        Mainloop.source_remove(this._playlistTimeOutId);
+        this._playlistTimeOutId = 0;
+      }
       // Use Alphabetical as the playlist ordering
       // unless Alphabetical is not in the Orderings,
       // in that case use the 1st available ordering in the array.
@@ -634,6 +665,12 @@ const MPRISPlayer = new Lang.Class({
     },
 
     _getTracklist: function() {
+      // A player may have trigger the fetching of a tracklist
+      // before our initial startup timeout happens.
+      if (this._tracklistTimeOutId !== 0) {
+        Mainloop.source_remove(this._tracklistTimeOutId);
+        this._tracklistTimeOutId = 0;
+      }
       this._prop.GetRemote('org.mpris.MediaPlayer2.TrackList', 'Tracks', Lang.bind(this, function(value, err) {
         if (err) {
           this.emit('player-update', new PlayerState({showTracklist: false}));
@@ -711,7 +748,21 @@ const MPRISPlayer = new Lang.Class({
     },
 
     destroy: function() {
+        // Cancel all pending timeouts.
         this._stopTimer();
+        if (this._statusId !== 0) {
+          Mainloop.source_remove(this._statusId);
+          this._statusId = 0;
+        }
+        if (this._playlistTimeOutId !== 0) {
+          Mainloop.source_remove(this._playlistTimeOutId);
+          this._playlistTimeOutId = 0;
+        }
+        if (this._tracklistTimeOutId !== 0) {
+          Mainloop.source_remove(this._tracklistTimeOutId);
+          this._tracklistTimeOutId = 0;
+        }
+        // Disconnect all signals.
         if (this._propChangedId) {
           this._prop.disconnectSignal(this._propChangedId);
         }
