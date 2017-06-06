@@ -1,6 +1,6 @@
 Name:       gnome-shell-extensions-mediaplayer
 Version:    3.22
-Release:    10
+Release:    11
 Summary:    A mediaplayer indicator for gnome-shell
 URL:        https://github.com/eonpatapon/gnome-shell-extensions-mediaplayer
 License:    GPLv2
@@ -9,7 +9,7 @@ BuildRequires:   glib2-devel
 BuildRequires:   gnome-common
 BuildRequires:   intltool
 BuildRequires:   pkgconfig
-Source0:    %{name}-%{version}.tar.gz
+Source0:    %{name}-%{version}.tar.xz
 
 %description
 gnome-shell-extensions-mediaplayer is a gnome-shell extension for controlling any MPRIS v2.1 capable media player.
