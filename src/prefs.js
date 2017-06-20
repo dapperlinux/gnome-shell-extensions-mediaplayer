@@ -59,7 +59,7 @@ function init() {
         status_size: {
             type: "i",
             label: _("Indicator status text width"),
-            help: _("The maximum width before the status text gets an ellipsis. Default is 300px."),
+            help: _("The maximum width before the status text gets an ellipsis. Default is 300px.\nAll Pixel values are relative to the UI scale factor."),
             min: 100,
             max: 900,
             step: 5,
@@ -68,16 +68,16 @@ function init() {
         large_cover: {
             type: "i",
             label: _("Large cover size"),
-            help: _("The size of the cover when zoomed. Default is 192px."),
+            help: _("The size of the cover when zoomed. Default is 128px.\nAll Pixel values are relative to the UI scale factor."),
             min: 128,
             max: 256,
             step: 1,
-            default: 192
+            default: 128
         },
         small_cover: {
             type: "i",
             label: _("Small cover size"),
-            help: _("The size of the cover when not zoomed. Default is 48px."),
+            help: _("The size of the cover when not zoomed. Default is 48px.\nAll Pixel values are relative to the UI scale factor."),
             min: 32,
             max: 96,
             step: 1,
@@ -130,6 +130,11 @@ function init() {
             type: "b",
             label: _("Enable Indicator scroll events"),
             help: _("Enables track changes on scrolling the Indicator.")
+        },
+        active_open: {
+            type: "b",
+            label: _("Always keep the active player open"),
+            help: _("Always keep the active player open when you open the indicator or system menu.")
         }
     };
 

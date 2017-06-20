@@ -44,6 +44,7 @@ const MEDIAPLAYER_ENABLE_SCROLL_EVENTS_KEY = 'enable-scroll';
 const MEDIAPLAYER_HIDE_STOCK_MPRIS_KEY = 'hide-stockmpris';
 const MEDIAPLAYER_RAISE_ON_CLICK_KEY = 'raise-click';
 const MEDIAPLAYER_START_ZOOMED_KEY = 'start-zoomed';
+const MEDIAPLAYER_KEEP_ACTIVE_OPEN_KEY = 'active-open';
 
 const MINOR_VERSION = parseInt(Config.PACKAGE_VERSION.split(".")[1])
 
@@ -67,6 +68,10 @@ const SEND_STOP_ON_CHANGE = [
     "org.mpris.MediaPlayer2.pragha"
 ];
 
+const WRONG_VOLUME_SCALING = [
+    "org.mpris.MediaPlayer2.quodlibet"
+];
+
 const ALTERNATIVE_PLAYLIST_TITLES = [
     {"Pithos": _("Stations")}
 ];
@@ -77,7 +82,10 @@ const ALTERNATIVE_TRACKLIST_TITLES = [
 
 const PLAYERS_THAT_CANT_STOP = [
     "Pithos",
-    "Spotify"
+    "Spotify",
+    "Quodlibet",
+    "Lollypop",
+    "GnomeMusic"
 ];
 
 const BROKEN_PLAYERS = [

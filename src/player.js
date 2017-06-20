@@ -53,6 +53,7 @@ const PlayerState = new Lang.Class({
   },
 
   playerName: null,
+  desktopEntry: null,
   status: null,
 
   playlist: null,
@@ -107,8 +108,7 @@ const MPRISPlayer = new Lang.Class({
             appInfo: null,
             // Guess a name based on the dbus path
             identity: baseName.charAt(0).toUpperCase() + baseName.slice(1),
-            canRaise: false,
-            canQuit: false
+            canRaise: false
         };
 
         this.state = new PlayerState();
@@ -174,7 +174,8 @@ const MPRISPlayer = new Lang.Class({
             return;
 
         this.info.canRaise = this._mediaServer.CanRaise;
-        this.info.canQuit = this._mediaServer.CanQuit;
+        this.sendsStopOnSongChange = Settings.SEND_STOP_ON_CHANGE.indexOf(this.busName) != -1;
+        this.hasWrongVolumeScaling = Settings.WRONG_VOLUME_SCALING.indexOf(this.busName) != -1;
 
         if (Settings.MINOR_VERSION > 19) {
         // Versions before 3.20 don't have Mpris built-in.
@@ -270,6 +271,9 @@ const MPRISPlayer = new Lang.Class({
 
           if (props.Volume) {
             let volume = props.Volume.unpack();
+            if (this.hasWrongVolumeScaling) {
+              volume = Math.pow(volume, 1 / 3);
+            }
             if (this.state.volume !== volume) {
               newState.volume = volume;
             }
@@ -333,7 +337,7 @@ const MPRISPlayer = new Lang.Class({
 
           if (props.PlaybackStatus) {
             let status = props.PlaybackStatus.unpack();
-            if (Settings.SEND_STOP_ON_CHANGE.indexOf(this.busName) != -1 && status == Settings.Status.STOP) {
+            if (this.sendsStopOnSongChange && status == Settings.Status.STOP) {
               // Some players send a "PlaybackStatus: Stopped" signal when changing
               // tracks, so wait a little before refreshing if they send a "Stopped" signal.
               if (this._statusId !== 0) {
@@ -414,11 +418,16 @@ const MPRISPlayer = new Lang.Class({
         showPlaylist: this._settings.get_boolean(Settings.MEDIAPLAYER_PLAYLISTS_KEY),
         showTracklist: this._settings.get_boolean(Settings.MEDIAPLAYER_TRACKLIST_KEY),
         showTracklistRating: this._settings.get_boolean(Settings.MEDIAPLAYER_TRACKLIST_RATING_KEY),
+        largeCoverSize: this._settings.get_int(Settings.MEDIAPLAYER_LARGE_COVER_SIZE_KEY),
         volume: this._mediaServerPlayer.Volume || 0.0,
         status: this._mediaServerPlayer.PlaybackStatus || Settings.Status.STOP,
         orderings: this._checkOrderings(this._mediaServerPlaylists.Orderings),
-        playerName: this._mediaServer.Identity || ''
+        playerName: this._mediaServer.Identity || '',
+        desktopEntry: this._mediaServer.DesktopEntry || ''
       });
+      if (this.hasWrongVolumeScaling) {
+        newState.volume = Math.pow(newState.volume, 1 / 3);
+      }
       if (this._mediaServerPlaylists.ActivePlaylist) {
         newState.playlist = this._mediaServerPlaylists.ActivePlaylist[1][0];
       }
@@ -478,6 +487,9 @@ const MPRISPlayer = new Lang.Class({
     },
 
     setVolume: function(volume) {
+      if (this.hasWrongVolumeScaling) {
+        volume = Math.pow(volume, 3);
+      }
       this._mediaServerPlayer.Volume = volume;
     },
 
@@ -503,10 +515,10 @@ const MPRISPlayer = new Lang.Class({
 
     _getPlayerInfo: function() {
         if (this._mediaServer.Identity) {
-          this.info.identity = this._mediaServer.Identity;
+          this.info.identity = this._mediaServer.Identity || '';
         }
         if (this._mediaServer.DesktopEntry) {
-          this.info.desktopEntry = this._mediaServer.DesktopEntry;
+          this.info.desktopEntry = this._mediaServer.DesktopEntry || '';
           let appSys = Shell.AppSystem.get_default();
           this.info.app = appSys.lookup_app(this.info.desktopEntry + ".desktop");
           this.info.appInfo = Gio.DesktopAppInfo.new(this.info.desktopEntry + ".desktop");

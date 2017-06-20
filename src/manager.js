@@ -37,10 +37,21 @@ const PlayerManager = new Lang.Class({
         this._disabling = false;
         // the menu
         this.menu = menu;
+        this._settings = Settings.gsettings;
         this.desiredMenuPosition = desiredMenuPosition;
         this.menu.connect('open-state-changed', Lang.bind(this, function(menu, active) {
-          if (active == true) {
+          let keepActiveOpen = this._settings.get_boolean(Settings.MEDIAPLAYER_KEEP_ACTIVE_OPEN_KEY);
+          if (active == true && keepActiveOpen) {
             this.showActivePlayer();
+          }
+        }));
+        this._settings.connect("changed::" + Settings.MEDIAPLAYER_KEEP_ACTIVE_OPEN_KEY, Lang.bind(this, function() {
+          let keepActiveOpen = this._settings.get_boolean(Settings.MEDIAPLAYER_KEEP_ACTIVE_OPEN_KEY);
+          if (keepActiveOpen) {
+            this.showActivePlayer();
+          }
+          else {
+            this.closeAllPlayers();
           }
         }));
         // players list
@@ -54,21 +65,24 @@ const PlayerManager = new Lang.Class({
         // player DBus name pattern
         let name_regex = /^org\.mpris\.MediaPlayer2\./;
         // load players
-        this._dbus.ListNamesRemote(Lang.bind(this,
-            function(names) {
-                for (let n in names[0]) {
-                    let name = names[0][n];
-                    if (name_regex.test(name)) {
-                        this._dbus.GetNameOwnerRemote(name, Lang.bind(this,
-                            function(owner) {
-                                if (!this._disabling)
-                                    this._addPlayer(name, owner);
-                            }
-                        ));
-                    }
-                }
+        this._dbus.ListNamesRemote(Lang.bind(this, function(names) {
+          let playerNames = [];
+          for (let n in names[0]) {
+            let name = names[0][n];
+            if (name_regex.test(name)) {
+              playerNames.push(name);
             }
-        ));
+          }
+          playerNames.sort();
+          for (let i in playerNames) {
+            let player = playerNames[i];
+            this._dbus.GetNameOwnerRemote(player, Lang.bind(this, function(owner) {
+              if (!this._disabling) {
+                this._addPlayer(player, owner);
+              }
+            }));
+          }
+        }));
         // watch players
         this._ownerChangedId = this._dbus.connectSignal('NameOwnerChanged', Lang.bind(this,
             function(proxy, sender, [name, old_owner, new_owner]) {
@@ -112,24 +126,29 @@ const PlayerManager = new Lang.Class({
       this._activePlayer = player;
       this._activePlayerId = this._activePlayer.connect('player-update',
                                                         Lang.bind(this, this._onActivePlayerUpdate));
-      this.showActivePlayer();
-      if (player.info.desktopEntry) {
-        player.state.desktopEntry = player.info.desktopEntry;
-      }
-      else {
-        player.state.desktopEntry = null;
+      let keepActiveOpen = this._settings.get_boolean(Settings.MEDIAPLAYER_KEEP_ACTIVE_OPEN_KEY);
+      if (keepActiveOpen) {
+        this.showActivePlayer();
       }
       this.emit('player-active-update', player.state);
     },
 
     showActivePlayer: function() {
-      if (!this._activePlayer) {
+      if (!this._activePlayer || !this.menu.actor.visible) {
         return;
       }
       for (let owner in this._players) {
         if (this._players[owner].player == this._activePlayer && this._players[owner].ui.menu) {
           this._players[owner].ui.menu.open();
           break;
+        }
+      }
+    },
+
+    closeAllPlayers: function() {
+      for (let owner in this._players) {
+        if (this._players[owner].ui.menu) {
+          this._players[owner].ui.menu.close();
         }
       }
     },
@@ -198,7 +217,9 @@ const PlayerManager = new Lang.Class({
                 signals: [],
                 signalsUI: []
               };
-
+              if (this.nbPlayers() === 1) {
+                this.emit('connect-signals');
+              } 
               this._players[owner].signals.push(
                   this._players[owner].player.connect('player-update',
                       Lang.bind(this, this._onPlayerUpdate)
@@ -216,9 +237,6 @@ const PlayerManager = new Lang.Class({
     },
 
     _onActivePlayerUpdate: function(player, newState) {
-      if (player.info.desktopEntry) {
-        newState.desktopEntry = player.info.desktopEntry
-      }
       this.emit('player-active-update', newState);
     },
 
@@ -268,6 +286,9 @@ const PlayerManager = new Lang.Class({
             delete this._players[owner];
         }
         this._refreshActivePlayer(null);
+        if (this.nbPlayers() === 0) {
+          this.emit('disconnect-signals');
+       }
     },
 
     _changePlayerOwner: function(busName, oldOwner, newOwner) {
