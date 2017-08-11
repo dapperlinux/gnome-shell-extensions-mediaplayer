@@ -28,23 +28,24 @@ const Gettext = imports.gettext.domain('gnome-shell-extensions-mediaplayer');
 const _ = Gettext.gettext;
 
 const MEDIAPLAYER_INDICATOR_POSITION_KEY = 'indicator-position';
-const MEDIAPLAYER_STATUS_TYPE_KEY = 'status-type';
+const MEDIAPLAYER_COVER_STATUS_KEY = 'cover-status';
 const MEDIAPLAYER_STATUS_TEXT_KEY = 'status-text';
 const MEDIAPLAYER_STATUS_SIZE_KEY = 'status-size';
 const MEDIAPLAYER_VOLUME_KEY = 'volume';
 const MEDIAPLAYER_HIDE_AGGINDICATOR_KEY = 'hide-aggindicator';
 const MEDIAPLAYER_POSITION_KEY = 'position';
 const MEDIAPLAYER_PLAYLISTS_KEY = 'playlists';
+const MEDIAPLAYER_STOP_BUTTON_KEY = 'stop-button';
+const MEDIAPLAYER_BUTTON_ICON_STYLE_KEY = 'button-icon-style';
+const MEDIAPLAYER_PLAYLIST_TITLE_KEY = 'playlist-title';
 const MEDIAPLAYER_TRACKLIST_KEY = 'tracklist';
 const MEDIAPLAYER_TRACKLIST_RATING_KEY = 'tracklist-rating';
+const MEDIAPLAYER_LOOP_STATUS_KEY = 'loop-status';
 const MEDIAPLAYER_RATING_KEY = 'rating';
-const MEDIAPLAYER_SMALL_COVER_SIZE_KEY = 'small-cover';
-const MEDIAPLAYER_LARGE_COVER_SIZE_KEY = 'large-cover';
 const MEDIAPLAYER_ENABLE_SCROLL_EVENTS_KEY = 'enable-scroll';
 const MEDIAPLAYER_HIDE_STOCK_MPRIS_KEY = 'hide-stockmpris';
-const MEDIAPLAYER_RAISE_ON_CLICK_KEY = 'raise-click';
-const MEDIAPLAYER_START_ZOOMED_KEY = 'start-zoomed';
 const MEDIAPLAYER_KEEP_ACTIVE_OPEN_KEY = 'active-open';
+const MEDIAPLAYER_PLAY_STATUS_ICON_KEY = 'playstatus';
 
 const MINOR_VERSION = parseInt(Config.PACKAGE_VERSION.split(".")[1])
 
@@ -54,7 +55,12 @@ const IndicatorPosition = {
     VOLUMEMENU: 2
 };
 
-const FADE_ANIMATION_TIME = 0.25;
+const ButtonIconStyles = {
+    CIRCULAR: 0,
+    SMALL: 1,
+    MEDIUM: 2,
+    LARGE: 3
+};
 
 const Status = {
     STOP: "Stopped",
@@ -62,10 +68,10 @@ const Status = {
     PAUSE: "Paused"
 };
 
-const SEND_STOP_ON_CHANGE = [
-    "org.mpris.MediaPlayer2.banshee",
-    "org.mpris.MediaPlayer2.vlc",
-    "org.mpris.MediaPlayer2.pragha"
+const ValidPlaybackStatuses = [
+    'Stopped',
+    'Playing',
+    'Paused'
 ];
 
 const WRONG_VOLUME_SCALING = [
@@ -73,29 +79,22 @@ const WRONG_VOLUME_SCALING = [
 ];
 
 const ALTERNATIVE_PLAYLIST_TITLES = [
-    {"Pithos": _("Stations")}
+    {"org.mpris.MediaPlayer2.pithos": _("Stations")}
 ];
 
 const ALTERNATIVE_TRACKLIST_TITLES = [
-    {"Pithos": _("Current Playlist")}
-];
-
-const PLAYERS_THAT_CANT_STOP = [
-    "Pithos",
-    "Spotify",
-    "Quodlibet",
-    "Lollypop",
-    "GnomeMusic"
+    {"org.mpris.MediaPlayer2.pithos": _("Current Playlist")}
 ];
 
 const BROKEN_PLAYERS = [
-    "Spotify"
+    "org.mpris.MediaPlayer2.spotify"
 ];
 
-const IndicatorStatusType = {
-    ICON: 0,
-    COVER: 1
-};
+const NO_LOOP_STATUS_SUPPORT = [
+    "org.mpris.MediaPlayer2.quodlibet",
+    "org.mpris.MediaPlayer2.pithos",
+    "org.mpris.MediaPlayer2.spotify"
+];
 
 let gsettings;
 

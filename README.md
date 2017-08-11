@@ -4,10 +4,12 @@ gnome-shell-extensions-mediaplayer is a gnome-shell extension for controlling
 any MPRIS v2.1 capable media player.
 
 ## Please see the Wiki for:
+  * [Contributing](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Contributing)
   * [Bug Reports and Feature Requests](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Bug-Reports-and-Feature-Requests)
   * [Installation](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Installation)
   * [Settings](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Settings)
-  * [Compatible players](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Compatible-players)
+  * [Compatible Players](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Compatible-players)
+  * [Ratings Support](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Ratings-Support)
   * [Known Player Bugs](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Known-Player-Bugs)
 
 ## Screenshot
@@ -20,7 +22,8 @@ any MPRIS v2.1 capable media player.
 - interactive indicator icon: scroll (next/previous), middle click (play/pause)
 - playlist support (org.mpris.MediaPlayer2.Playlists interface)
 - tracklist support (org.mpris.MediaPlayer2.TrackList interface)
-- rating support (Not a part of the MPRIS spec, limited support with player specifc code)
+- Shuffle and Repeat support(not well supported by players. Lollypop has full support)
+- rating support (Not a part of the MPRIS spec, limited support with player specifc code, see [Ratings Support](https://github.com/JasonLG1979/gnome-shell-extensions-mediaplayer/wiki/Ratings-Support). Currently you can set ratings in Rhythmbox, Lollypop, Nuvola Player, Quod Libet and Pithos.)
 - and more...
 
 ## Authors

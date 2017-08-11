@@ -20,18 +20,15 @@
 'use strict';
 
 const Lang = imports.lang;
-const Gio = imports.gi.Gio;
 const Clutter = imports.gi.Clutter;
 const Pango = imports.gi.Pango;
 const St = imports.gi.St;
 const PanelMenu = imports.ui.panelMenu;
-const Main = imports.ui.main;
-const GLib = imports.gi.GLib;
 const Signals = imports.signals;
 
 const Me = imports.misc.extensionUtils.getCurrentExtension();
 const Settings = Me.imports.settings;
-const Lib = Me.imports.lib;
+const Util = Me.imports.util;
 
 const PanelState = new Lang.Class({
   Name: 'PanelState',
@@ -51,7 +48,10 @@ const PanelState = new Lang.Class({
   update: function(state) {
     let changed = false;
     for (let key in state) {
-      if (state[key] !== null && this.values[key] !== undefined && this.values[key] !== state[key]) {
+      if (state[key] !== null
+          && state[key].constructor === String
+          && this.values[key] !== undefined
+          && this.values[key] !== state[key]) {
         this.values[key] = state[key];
         changed = true;
       }
@@ -103,28 +103,24 @@ const IndicatorMixin = {
 
   _connectSignals: function() {
     this.panelChangeId = this.panelState.connect('changed', Lang.bind(this, this._updatePanel));
-    this.themeChangeId = this.themeContext.connect('changed', Lang.bind(this, function() {
-      this._setMenuWidth(this._settings.get_int(Settings.MEDIAPLAYER_LARGE_COVER_SIZE_KEY));
-    }));
-    this._signalsId.push(this._settings.connect("changed::" + Settings.MEDIAPLAYER_STATUS_TYPE_KEY,
-      Lang.bind(this, function() {
-        this.useCoverInPanel =
-          this._settings.get_enum(Settings.MEDIAPLAYER_STATUS_TYPE_KEY) == Settings.IndicatorStatusType.COVER;
+    this._signalsId.push(this._settings.connect("changed::" + Settings.MEDIAPLAYER_COVER_STATUS_KEY,
+      Lang.bind(this, function(settings, key) {
+        this._useCoverInPanel = settings.get_boolean(key);
         this._updatePanel();
     })));
-    this._signalsId.push(this._settings.connect("changed::" + Settings.MEDIAPLAYER_STATUS_TEXT_KEY, Lang.bind(this, function() {
-      this._updatePanel();
+    this._signalsId.push(this._settings.connect("changed::" + Settings.MEDIAPLAYER_STATUS_TEXT_KEY,
+      Lang.bind(this, function(settings, key) {
+        this._stateTemplate = settings.get_string(key);
+        this._updatePanel();
     })));
-    this._signalsId.push(this._settings.connect("changed::" + Settings.MEDIAPLAYER_STATUS_SIZE_KEY, Lang.bind(this, function() {
-      this._updatePanel();
+    this._signalsId.push(this._settings.connect("changed::" + Settings.MEDIAPLAYER_STATUS_SIZE_KEY,
+      Lang.bind(this, function(settings, key) {
+          this._prefWidth = settings.get_int(key);
+          this._updatePanel();
     })));
   },
 
   _disconnectSignals: function() {
-    if (this.themeChangeId != 0) {
-      this.themeContext.disconnect(this.themeChangeId);
-      this.themeChangeId = 0;
-    }
     if (this.panelChangeId != 0) {
       this.panelState.disconnect(this.panelChangeId);
       this.panelChangeId = 0;
@@ -137,9 +133,6 @@ const IndicatorMixin = {
 
   // method binded to classes below
   _commonOnActivePlayerUpdate: function(manager, state) {
-    if (state.largeCoverSize !== null) {
-      this._setMenuWidth(state.largeCoverSize);
-    } 
     this.panelState.update(state);
     this._onActivePlayerUpdate(state);
   },
@@ -161,34 +154,33 @@ const IndicatorMixin = {
       this.indicators.show();
     }
 
-    let stateTemplate = this._settings.get_string(Settings.MEDIAPLAYER_STATUS_TEXT_KEY);
-    if(stateTemplate.length === 0 || state.status == Settings.Status.STOP) {
+    if(this._stateTemplate.length === 0 || state.status == Settings.Status.STOP) {
+      this._thirdIndicator.clutter_text.set_markup('');
+      this._statusTextWidth = 0;
+      this._stateText = '';
       this._thirdIndicator.hide();      
-    } else {
+    }
+    else if (state.playerName || state.trackTitle || state.trackArtist || state.trackAlbum) {
+      let stateText = this.compileTemplate(this._stateTemplate, state);
+      if (this._stateText != stateText) {
+        this._thirdIndicator.clutter_text.set_markup(stateText);
+        this._thirdIndicator.set_width(-1);
+        this._statusTextWidth = this._thirdIndicator.get_width();
+      }
+      let desiredwidth = Math.min(this._prefWidth, this._statusTextWidth);
+      let currentWidth = this._thirdIndicator.get_width();
+      if (currentWidth != desiredwidth) {
+        this._thirdIndicator.set_width(desiredwidth);
+      }
       this._thirdIndicator.show();
     }
 
-    if (state.playerName || state.trackTitle || state.trackArtist || state.trackAlbum) {
-      let stateText = this.compileTemplate(stateTemplate, state);
-      this._thirdIndicator.clutter_text.set_markup(stateText);
-      let prefWidth = this._settings.get_int(Settings.MEDIAPLAYER_STATUS_SIZE_KEY);
-      this._thirdIndicator.clutter_text.set_width(-1);
-      let statusTextWidth = this._thirdIndicator.clutter_text.get_width();
-      let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
-      let desiredwidth = Math.round(Math.min(prefWidth, statusTextWidth) * scaleFactor);
-      this._thirdIndicator.clutter_text.set_width(desiredwidth);
-      this._thirdIndicator.set_width(desiredwidth);
-    }
-
-    if (state.trackCoverUrl !== null || state.desktopEntry !== null) {
-      let fallbackIcon = 'audio-x-generic-symbolic';
-      if(state.desktopEntry) {
-        fallbackIcon = this.getPlayerSymbolicIcon(state.desktopEntry);
+    if (state.trackCoverUrl || state.desktopEntry) {
+      let fallbackIcon = this.getPlayerSymbolicIcon(state.desktopEntry, 'mpi-symbolic');
+      if (this._useCoverInPanel) {
+          this.setCoverIconAsync(this._primaryIndicator, state.trackCoverUrl, fallbackIcon, true);
       }
-      if (state.trackCoverUrl && this.useCoverInPanel) {
-          this.setCoverIconAsync(this._primaryIndicator, state.trackCoverUrl, fallbackIcon);
-      }
-      else {
+      else if (this._primaryIndicator.icon_name != fallbackIcon) {
         this._primaryIndicator.icon_name = fallbackIcon;
       }
     }
@@ -196,17 +188,12 @@ const IndicatorMixin = {
 
   _commonOnActivePlayerRemove: function(manager) {
     this._primaryIndicator.icon_name = 'audio-x-generic-symbolic';    
-    this._clearStateText();
+    this._thirdIndicator.clutter_text.set_markup('');
     this._thirdIndicator.set_width(0);
     this._secondaryIndicator.set_width(0);
     this._thirdIndicator.hide();
     this._secondaryIndicator.hide();
     this._onActivePlayerRemove();
-  },
-
-  _clearStateText: function() {
-    this._thirdIndicator.text = "";
-    this._thirdIndicator.clutter_text.set_width(0);
   }
 };
 
@@ -218,18 +205,21 @@ const PanelIndicator = new Lang.Class({
     this.parent(0.0, "mediaplayer");
 
     this._manager = null;
-    this.themeChangeId = 0;
     this.panelChangeId = 0;
     this.themeContext = St.ThemeContext.get_for_stage(global.stage);
     this.actor.add_style_class_name('panel-status-button');
-    this.menu.actor.add_style_class_name('aggregate-menu dummy-style-class');
-    this.compileTemplate = Lib.compileTemplate;
-    this.setCoverIconAsync = Lib.setCoverIconAsync;
-    this.getPlayerSymbolicIcon = Lib.getPlayerSymbolicIcon;
+    this.menu.actor.add_style_class_name('aggregate-menu panel-media-indicator');
+    this.compileTemplate = Util.compileTemplate;
+    this.setCoverIconAsync = Util.setCoverIconAsync;
+    this.getPlayerSymbolicIcon = Util.getPlayerSymbolicIcon;
     this.panelState = new PanelState();
 
     this._settings = Settings.gsettings;
-    this.useCoverInPanel = this._settings.get_enum(Settings.MEDIAPLAYER_STATUS_TYPE_KEY) == Settings.IndicatorStatusType.COVER;
+    this._useCoverInPanel = this._settings.get_boolean(Settings.MEDIAPLAYER_COVER_STATUS_KEY);
+    this._stateTemplate = this._settings.get_string(Settings.MEDIAPLAYER_STATUS_TEXT_KEY);
+    this._prefWidth = this._settings.get_int(Settings.MEDIAPLAYER_STATUS_SIZE_KEY);
+    this._statusTextWidth = 0;
+    this._stateText = '';
     this._signalsId = [];
 
     this.indicators = new St.BoxLayout({vertical: false, style_class: 'system-status-icon'});
@@ -267,18 +257,9 @@ const PanelIndicator = new Lang.Class({
 
   _onActivePlayerRemove: function() {
     this.actor.hide();
-  },
-
-  _setMenuWidth: function(largeCoverSize) {
-    let menu = this.menu
-    let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
-    let menuWidth = menu.actor.get_theme_node().get_min_width();
-    let minMenuWidth = largeCoverSize + 96;
-    let desiredwidth = Math.max(menuWidth, minMenuWidth);
-    menu.actor.width = Math.round(desiredwidth * scaleFactor);
   }
 });
-Lib._extends(PanelIndicator, IndicatorMixin);
+Util._extends(PanelIndicator, IndicatorMixin);
 
 const AggregateMenuIndicator = new Lang.Class({
   Name: 'AggregateMenuIndicator',
@@ -288,15 +269,18 @@ const AggregateMenuIndicator = new Lang.Class({
     this.parent();
 
     this._manager = null;
-    this.themeChangeId = 0;
     this.panelChangeId = 0;
     this.themeContext = St.ThemeContext.get_for_stage(global.stage);
-    this.compileTemplate = Lib.compileTemplate;
-    this.setCoverIconAsync = Lib.setCoverIconAsync;
-    this.getPlayerSymbolicIcon = Lib.getPlayerSymbolicIcon;
+    this.compileTemplate = Util.compileTemplate;
+    this.setCoverIconAsync = Util.setCoverIconAsync;
+    this.getPlayerSymbolicIcon = Util.getPlayerSymbolicIcon;
     this._settings = Settings.gsettings;
     this.panelState = new PanelState();
-    this.useCoverInPanel = this._settings.get_enum(Settings.MEDIAPLAYER_STATUS_TYPE_KEY) == Settings.IndicatorStatusType.COVER;
+    this._useCoverInPanel = this._settings.get_boolean(Settings.MEDIAPLAYER_COVER_STATUS_KEY);
+    this._stateTemplate = this._settings.get_string(Settings.MEDIAPLAYER_STATUS_TEXT_KEY);
+    this._prefWidth = this._settings.get_int(Settings.MEDIAPLAYER_STATUS_SIZE_KEY);
+    this._statusTextWidth = 0;
+    this._stateText = '';
     this._signalsId = [];
     this._primaryIndicator = this._addIndicator();
     this._primaryIndicator.icon_name = 'audio-x-generic-symbolic';
@@ -337,16 +321,6 @@ const AggregateMenuIndicator = new Lang.Class({
 
   _onActivePlayerRemove: function() {
     this.indicators.hide();
-    Main.panel.statusArea.aggregateMenu.menu.actor.set_width(-1);
-  },
-
-  _setMenuWidth: function(largeCoverSize) {
-    let menu = Main.panel.statusArea.aggregateMenu.menu
-    let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
-    let menuWidth = menu.actor.get_theme_node().get_min_width();
-    let minMenuWidth = largeCoverSize + 96;
-    let desiredwidth = Math.max(menuWidth, minMenuWidth);
-    menu.actor.width = Math.round(desiredwidth * scaleFactor);
   }
 });
-Lib._extends(AggregateMenuIndicator, IndicatorMixin);
+Util._extends(AggregateMenuIndicator, IndicatorMixin);

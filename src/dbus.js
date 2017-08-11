@@ -44,6 +44,10 @@ const PropertiesIface = '<node>\
             <arg type="s" direction="in" />\
             <arg type="v" direction="out" />\
         </method>\
+        <method name="GetAll"> \
+            <arg direction="in" type="s"/> \
+            <arg direction="out" type="a{sv}"/> \
+        </method> \
         <signal name="PropertiesChanged">\
             <arg type="s" direction="out" />\
             <arg type="a{sv}" direction="out" />\
@@ -64,26 +68,36 @@ const MediaServer2Iface = '<node>\
 </node>';
 const MediaServer2Proxy = Gio.DBusProxy.makeProxyWrapper(MediaServer2Iface);
 
+
+// For some reason the Nuvola dev was told to scab in a non-spec
+// prop and method for the support of setting ratings instead of
+// making a seperate ratings extension interface.
+// Oh well, they really don't hurt anything. No other player will try
+// to use them anyway...
 const MediaServer2PlayerIface = '<node>\
     <interface name="org.mpris.MediaPlayer2.Player">\
         <method name="PlayPause" />\
-        <method name="Pause" />\
-        <method name="Play" />\
-        <method name="Stop" />\
         <method name="Next" />\
         <method name="Previous" />\
+        <method name="Stop" />\
         <method name="SetPosition">\
             <arg type="o" direction="in" />\
             <arg type="x" direction="in" />\
         </method>\
+        <method name="NuvolaSetRating">\
+            <arg type="d" direction="in" />\
+        </method>\
+        <property name="NuvolaCanRate" type="b" access="read" />\
+        <property name="CanPlay" type="b" access="read" />\
         <property name="CanPause" type="b" access="read" />\
         <property name="CanSeek" type="b" access="read" />\
         <property name="CanGoNext" type="b" access="read" />\
         <property name="CanGoPrevious" type="b" access="read" />\
         <property name="Metadata" type="a{sv}" access="read" />\
         <property name="Volume" type="d" access="readwrite" />\
+        <property name="LoopStatus" type="s" access="readwrite" />\
+        <property name="Shuffle" type="b" access="readwrite" />\
         <property name="PlaybackStatus" type="s" access="read" />\
-        <property name="Position" type="x" access="read" />\
         <signal name="Seeked">\
             <arg type="x" direction="out" />\
         </signal>\
@@ -142,6 +156,47 @@ const MediaServer2TracklistIface = '<node>\
 </node>';
 const MediaServer2TracklistProxy = Gio.DBusProxy.makeProxyWrapper(MediaServer2TracklistIface);
 
+const PithosRatingsIface = '<node>\
+    <interface name="org.mpris.MediaPlayer2.ExtensionPithosRatings">\
+        <method name="LoveSong">\
+            <arg type="o" direction="in" />\
+        </method>\
+        <method name="BanSong">\
+            <arg type="o" direction="in" />\
+        </method>\
+        <method name="TiredSong">\
+            <arg type="o" direction="in" />\
+        </method>\
+        <method name="UnRateSong">\
+            <arg type="o" direction="in" />\
+        </method>\
+        <property name="HasPithosExtension" type="b" access="read" />\
+    </interface>\
+</node>';
+const PithosRatingsProxy = Gio.DBusProxy.makeProxyWrapper(PithosRatingsIface);
+
+const RatingsExtensionIface = '<node>\
+    <interface name="org.mpris.MediaPlayer2.ExtensionSetRatings">\
+        <method name="SetRating">\
+            <arg type="o" direction="in" />\
+            <arg type="d" direction="in" />\
+        </method>\
+        <property name="HasRatingsExtension" type="b" access="read" />\
+    </interface>\
+</node>';
+const RatingsExtensionProxy = Gio.DBusProxy.makeProxyWrapper(RatingsExtensionIface);
+
+const Rhythmbox3Iface = '<node>\
+    <interface name="org.gnome.Rhythmbox3.RhythmDB">\
+        <method name="SetEntryProperties">\
+            <arg type="s" direction="in" />\
+            <arg type="a{sv}" direction="in" />\
+        </method>\
+    </interface>\
+ </node>';
+
+const Rhythmbox3Proxy = Gio.DBusProxy.makeProxyWrapper(Rhythmbox3Iface);
+
 function DBus() {
     return new DBusProxy(Gio.DBus.session, 'org.freedesktop.DBus',
                          '/org/freedesktop/DBus');
@@ -175,4 +230,44 @@ function MediaServer2Tracklist(owner, callback) {
     new MediaServer2TracklistProxy(Gio.DBus.session, owner,
                                    '/org/mpris/MediaPlayer2',
                                    callback);
+}
+
+function PithosRatings(owner, callback) {
+    if (owner != 'org.mpris.MediaPlayer2.pithos') {
+      callback(false);
+    }
+    else {
+      let proxy = new PithosRatingsProxy(Gio.DBus.session, owner,
+                                         '/org/mpris/MediaPlayer2');
+      if (proxy.HasPithosExtension) {
+        callback(proxy);
+      }
+      else {
+        callback(false);
+      }
+    }
+}
+
+function RatingsExtension(owner, callback) {
+    let proxy = new RatingsExtensionProxy(Gio.DBus.session, owner,
+                                          '/org/mpris/MediaPlayer2');
+    if (owner == 'org.mpris.MediaPlayer2.GnomeMusic') {
+      callback(false);
+    }    
+    else if (proxy.HasRatingsExtension) {
+      callback(proxy);
+    }
+    else {
+      callback(false);
+    }
+}
+
+function RhythmboxRatings(owner) {
+    if (owner != 'org.mpris.MediaPlayer2.rhythmbox') {
+      return false;
+    }
+    else {
+      return new Rhythmbox3Proxy(Gio.DBus.session, "org.gnome.Rhythmbox3",
+                                 "/org/gnome/Rhythmbox3/RhythmDB");
+    }
 }

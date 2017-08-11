@@ -20,18 +20,11 @@
 
 'use strict';
 
-const Mainloop = imports.mainloop;
 const Gio = imports.gi.Gio;
 const Gtk = imports.gi.Gtk;
 const Lang = imports.lang;
-const Clutter = imports.gi.Clutter;
-const Shell = imports.gi.Shell;
 const St = imports.gi.St;
 const Main = imports.ui.main;
-const PopupMenu = imports.ui.popupMenu;
-const GLib = imports.gi.GLib;
-const Tweener = imports.ui.tweener;
-const BoxPointer = imports.ui.boxpointer;
 
 const Gettext = imports.gettext.domain('gnome-shell-extensions-mediaplayer');
 const _ = Gettext.gettext;
@@ -39,107 +32,40 @@ const _ = Gettext.gettext;
 const Me = imports.misc.extensionUtils.getCurrentExtension();
 const Widget = Me.imports.widget;
 const Settings = Me.imports.settings;
-const Player = Me.imports.player;
-const Lib = Me.imports.lib;
+const Util = Me.imports.util;
 
-
-const PlayerMenu = new Lang.Class({
-  Name: 'PlayerMenu',
-  Extends: PopupMenu.PopupSubMenuMenuItem,
-
-  _init: function(label, wantIcon) {
-    this.parent(label, wantIcon);
-    //We never want to reserve space for a scrollbar in the players.
-    this.menu.actor.vscrollbar_policy = Gtk.PolicyType.NEVER;
-    this.menu._needsScrollbar = Lang.bind(this, function() {return false;});
-    this.menu._close = this.menu.close;
-    this.menu._open = this.menu.open;
-    this.menu.close = Lang.bind(this, this.close);
-    this.menu.open = Lang.bind(this, this.open);
-  },
-
-  addMenuItem: function(item) {
-    this.menu.addMenuItem(item);
-  },
-
-  close: function(animate) {
-    if (!this.menu.isOpen) {
-      return;
-    }
-    //If we animate the close GNOME Shell gets confused
-    //sometimes and adds space for a scrollbar in other menus in
-    //the system menu on close.
-    this.menu._close(BoxPointer.PopupAnimation.NONE);
-  },
-
-  open: function(animate) {
-    if (this.menu.isOpen) {
-      return;
-    }
-    //If we animate the open GNOME Shell gets confused
-    //and our menus can overflow off screen.
-    this.menu._open(BoxPointer.PopupAnimation.NONE);
-    this.emit('player-menu-opened');
-  }
-
-});
 
 const PlayerUI = new Lang.Class({
   Name: 'PlayerUI',
-  Extends: PlayerMenu,
+  Extends: Widget.PlayerMenu,
 
   _init: function(player) {
-    this.parent(player.info.identity, true);
-    this.icon.icon_name = 'audio-x-generic-symbolic';
+    this.parent('', true);
+    this.hidePlayStatusIcon();
     this.player = player;
-    this.setCoverIconAsync = Lib.setCoverIconAsync;
-    this._updateId = player.connect("player-update", Lang.bind(this, this.update));
-    this._updateInfoId = player.connect("player-update-info", Lang.bind(this, this.updateInfo));
-
-    this.showRating = false;
-    this.showVolume = false;
-    this.showPosition = false;
-    this.showPlaylist = false;
-    this.showTracklist = false;
-    this.showTracklistRating = false;
-    this.hasTrackList = false;
-    this.trackLength = 0;
+    this.setCoverIconAsync = Util.setCoverIconAsync;
+    this._updateId = player.connect('player-update', Lang.bind(this, this.update));
 
     this.oldShouldShow = null;
-    //Broken Players never get anything beyond the most basic functionality
-    //because they don't know how to behave properly.
-    this.playerIsBroken = Settings.BROKEN_PLAYERS.indexOf(this.player.info.identity) != -1;
-    this.largeCoverSize = Settings.gsettings.get_int(Settings.MEDIAPLAYER_LARGE_COVER_SIZE_KEY);
-    this.smallCoverSize = Settings.gsettings.get_int(Settings.MEDIAPLAYER_SMALL_COVER_SIZE_KEY);
 
-    this.trackCover = new St.Button({child: new St.Icon({icon_name: "media-optical-cd-audio-symbolic"})});
-    if (Settings.MINOR_VERSION > 19) {
-      this.trackCover.child.add_style_class_name('media-message-cover-icon fallback no-padding');
-    }
+    this.playlistTitle = new Widget.PlaylistTitle();
+    this.playlistTitle.connect('activate', Lang.bind(this.player, this.player.raise));
+    this.addMenuItem(this.playlistTitle);
+    this.playlistTitle.hide();
 
-    this.trackCover.connect('clicked', Lang.bind(this, function(actor, button) {
-      if (Settings.gsettings.get_boolean(Settings.MEDIAPLAYER_RAISE_ON_CLICK_KEY)) {
-        this.player.raise();
-        this.menu._getTopMenu().close();
-      }
-      else {
-        this._toggleCover();
-      }
-    }));
+    this.trackCover = new Widget.TrackCover(new St.Icon({icon_name: 'audio-x-generic-symbolic', style_class: 'large-cover-icon'}));
+    this.trackCover.connect('activate', Lang.bind(this.player, this.player.raise));
+    this.addMenuItem(this.trackCover);
+    this.trackCover.hide();
 
-    this.trackBox = new Widget.TrackBox(this.trackCover);
-    this.trackBox.connect('activate', Lang.bind(this.player, this.player.raise));
-    this.addMenuItem(this.trackBox);
-    this.trackRatings = null;
-    if (!this.playerIsBroken) {
-      this.trackRatings = new Widget.TrackRating(this.player, 0);
-      this.trackRatings.connect('activate', Lang.bind(this.player, this.player.raise));
-      this.addMenuItem(this.trackRatings);
-    }
+    this.trackRatings = new Widget.TrackRating(this.player);
+    this.trackRatings.connect('activate', Lang.bind(this.player, this.player.raise));
+    this.addMenuItem(this.trackRatings);
+    this.trackRatings.hide();
 
-    this.secondaryInfo = new Widget.SecondaryInfo();
-    this.secondaryInfo.connect('activate', Lang.bind(this.player, this.player.raise));
-    this.addMenuItem(this.secondaryInfo);
+    this.info = new Widget.Info();
+    this.info.connect('activate', Lang.bind(this.player, this.player.raise));
+    this.addMenuItem(this.info);
         
     this.trackControls = new Widget.PlayerButtons();
     this.trackControls.connect('activate', Lang.bind(this.player, this.player.raise))
@@ -152,14 +78,9 @@ const PlayerUI = new Lang.Class({
                                               Lang.bind(this.player, this.player.playPause));
     this.trackControls.addButton(this.playButton);
 
-    this.stopButton = null;
-
-    if (Settings.PLAYERS_THAT_CANT_STOP.indexOf(this.player.info.identity) == -1) {
-      this.stopButton = new Widget.PlayerButton('media-playback-stop-symbolic',
-                                                Lang.bind(this.player, this.player.stop));
-      this.stopButton.hide();
-      this.trackControls.addButton(this.stopButton)
-    }
+    this.stopButton = new Widget.PlayerButton('media-playback-stop-symbolic',
+                                              Lang.bind(this.player, this.player.stop));
+    this.trackControls.addButton(this.stopButton);
     
     this.nextButton = new Widget.PlayerButton('media-skip-forward-symbolic',
                                               Lang.bind(this.player, this.player.next));
@@ -167,63 +88,69 @@ const PlayerUI = new Lang.Class({
 
     this.addMenuItem(this.trackControls);
 
+    this.shuffleLoopStatus = new Widget.ShuffleLoopStatus(this.player);
+    this.shuffleLoopStatus.connect('activate', Lang.bind(this.player, this.player.raise));
+    this.addMenuItem(this.shuffleLoopStatus);
+    this.shuffleLoopStatus.hide();
 
-    this.position = null;
-    this.volume = null;
-    this.tracklist = null;
-    this.playlists = null;
-    if (!this.playerIsBroken) {
-      this.position = new Widget.SliderItem("document-open-recent-symbolic", 0);
-      this.position.connect('activate', Lang.bind(this.player, this.player.raise))
-      this.position.sliderConnect('value-changed', Lang.bind(this, function(item) {
-        this.player.seek(item._value);
-      }));
-      this.addMenuItem(this.position);
+    this.position = new Widget.SliderItem('document-open-recent-symbolic');
+    this.position.connect('activate', Lang.bind(this.player, this.player.raise))
+    this.position.sliderConnect('value-changed', Lang.bind(this, function(item) {
+      this.player.seek(item._value);
+    }));
+    this.addMenuItem(this.position);
+    this.position.hide();
 
-      this.volume = new Widget.SliderItem("audio-volume-high-symbolic", 0);
-      this.volume.connect('activate', Lang.bind(this.player, this.player.raise))
-      this.volume.sliderConnect('value-changed', Lang.bind(this, function(item) {
-        this.player.setVolume(item._value);
-      }));
-      this.addMenuItem(this.volume);
+    this.volume = new Widget.SliderItem('audio-volume-high-symbolic');
+    this.volume.connect('activate', Lang.bind(this.player, this.player.raise))
+    this.volume.sliderConnect('value-changed', Lang.bind(this, function(item) {
+      if (this.player.volume != item._value) {
+        this.player.volume = item._value;
+      }
+    }));
+    this.addMenuItem(this.volume);
+    this.volume.hide();
 
-      this.tracklist = this._createTracklistWidget();
-      this.addMenuItem(this.tracklist);
+    this.tracklist = this._createTracklistWidget();
+    this.addMenuItem(this.tracklist);
+    this.tracklist.hide();
  
-      this.playlists = this._createPlaylistWidget();
-      this.addMenuItem(this.playlists);
+    this.playlists = this._createPlaylistWidget();
+    this.addMenuItem(this.playlists);
+    this.playlists.hide();
 
-      this.connect('player-menu-opened', Lang.bind(this, function() {
-        this.tracklist.updateScrollbarPolicy();
-        this.playlists.updateScrollbarPolicy();
-      }));
-
-      this.tracklist.connect('ListSubMenu-opened', Lang.bind(this, function() {
-        this.playlists.close();
-      }));
-      this.playlists.connect('ListSubMenu-opened', Lang.bind(this, function() {
-        this.tracklist.close();
-      }));
-    }
+    this.tracklist.menu.connect('open-state-changed', Lang.bind(this, function(menu, open) {
+      if (open) {
+        this.playlists.menu.close();
+      }
+    }));
+    this.playlists.menu.connect('open-state-changed', Lang.bind(this, function(menu, open) {
+      if (open) {
+        this.tracklist.menu.close();
+      }
+    }));
 
     if (Settings.MINOR_VERSION > 19) {
       this.stockMpris = Main.panel.statusArea.dateMenu._messageList._mediaSection;
       //Monkey patch
       this.stockMprisOldShouldShow = this.stockMpris._shouldShow;
       
-    }
-
-    if (Settings.gsettings.get_boolean(Settings.MEDIAPLAYER_START_ZOOMED_KEY)) {
-      this.trackCover.child.icon_size = this.largeCoverSize;
-      this.trackBox.infos.hide();      
-    }
-    else {
-      this.trackCover.child.icon_size = this.smallCoverSize;
-      this.secondaryInfo.hide();
     } 
   },
 
+  get state() {
+    return this.player.state;
+  },
+
   update: function(player, newState) {
+    if (newState.desktopEntry !== null) {
+      this.icon.icon_name = Util.getPlayerSymbolicIcon(this.state.desktopEntry);
+    }
+
+    if (newState.playerName !== null) {
+      this.label.text = this.state.playerName;
+    }
+
     if (newState.hideStockMpris !== null) {
       if (this.stockMpris) {
         if (newState.hideStockMpris) {
@@ -239,288 +166,401 @@ const PlayerUI = new Lang.Class({
       }
     }
 
-    if (newState.largeCoverSize !== null) {
-      this.largeCoverSize = newState.largeCoverSize;
-      if (this.trackCover.child.icon_size !== this.smallCoverSize) {
-        this.trackCover.child.icon_size = this.largeCoverSize;
+    if (newState.isRhythmboxStream !== null) {
+      if (this.state.isRhythmboxStream) {
+        this.trackCover.hideAnimate();
+        this.trackRatings.hideAnimate();
+        this.position.hideAnimate();
+        this.shuffleLoopStatus.hideAnimate();
+      }
+      if (this.state.showLoopStatus
+          && !this.state.isRhythmboxStream
+          && this.state.status !== Settings.Status.STOP) {
+        this.shuffleLoopStatus.showAnimate();
+      }             
+    }
+
+    if (newState.showPlayStatusIcon !== null) {
+      if (this.state.showPlayStatusIcon) {
+        this.showPlayStatusIcon();
+      }
+      else {
+        this.hidePlayStatusIcon();
       }              
     }
 
-    if (newState.smallCoverSize !== null) {
-      this.smallCoverSize = newState.smallCoverSize;
-      if (this.trackCover.child.icon_size !== this.largeCoverSize) {
-        this.trackCover.child.icon_size = this.smallCoverSize;
+    if (newState.showRating !== null) {
+      if (this.player.showRating
+          && this.state.showRating !== 'no rating'
+          && !this.state.isRhythmboxStream
+          && this.state.status !== Settings.Status.STOP) {
+        this.trackRatings.showAnimate()
+      }
+      else {
+        this.trackRatings.hideAnimate();
       }              
     }
 
-    if (newState.showRating !== null && this.trackRatings !== null) {
-      this.showRating = newState.showRating;
-      if (this.showRating) {
-        this.trackRatings.actor.show();
+    if (newState.showVolume !== null) {
+      if (this.state.showVolume) {
+        this.volume.showAnimate();
       }
       else {
-        this.trackRatings.actor.hide();
-      }              
+        this.volume.hideAnimate();
+      }
     }
 
-    if (newState.showVolume !== null && this.volume !== null) {
-      this.showVolume = newState.showVolume;
-      if (this.showVolume) {
-        this.volume.actor.show();
+    if (newState.buttonIconStyle !== null) {
+      this.prevButton.setIconSize(this.state.buttonIconStyle);
+      this.playButton.setIconSize(this.state.buttonIconStyle);
+      this.stopButton.setIconSize(this.state.buttonIconStyle);
+      this.nextButton.setIconSize(this.state.buttonIconStyle);
+    }
+
+    if (newState.shuffle !== null) {
+      this.shuffleLoopStatus.setShuffle(this.state.shuffle);
+    }
+
+    if (newState.loopStatus !== null) {
+      this.shuffleLoopStatus.setLoopStaus(this.state.loopStatus);
+    }
+
+    if (newState.showLoopStatus !== null) {
+      if (!this.state.showLoopStatus) {
+        this.shuffleLoopStatus.hideAnimate();
+      }
+      if (this.state.showLoopStatus
+          && !this.state.isRhythmboxStream
+          && this.state.status !== Settings.Status.STOP) {
+        this.shuffleLoopStatus.showAnimate();
+      }
+    }
+
+    if (newState.showPlaylistTitle !== null) {
+      if (this.state.showPlaylistTitle && this.state.playlistTitle) {
+        this.playlistTitle.showAnimate();
       }
       else {
-        this.volume.actor.hide();
+        this.playlistTitle.hideAnimate();
       }
     }
 
-    if (newState.trackLength !== null) {
-      this.trackLength = newState.trackLength;
-    }
-
-    if (newState.showPosition !== null && this.position !== null) {
-      this.showPosition = newState.showPosition;
-      if (this.showPosition && this.trackLength !== 0) {
-        this.position.actor.show();
+    if (newState.playlistTitle !== null) {
+      if (this.state.showPlaylistTitle && this.state.playlistTitle) {
+        this.playlistTitle.update(this.state.playlistTitle);
+        this.playlistTitle.showAnimate();
       }
       else {
-        this.position.actor.hide();
+        this.playlistTitle.hideAnimate();
       }
     }
 
-    if (newState.showPlaylist !== null && this.playlists !== null) {
-      this.showPlaylist = newState.showPlaylist;
-      if (this.showPlaylist) {
-        this.playlists.show();
+    if (newState.showPosition !== null) {
+      if (this.state.showPosition
+          && this.state.trackLength !== 0
+          && this.state.status !== Settings.Status.STOP
+          && !this.state.isRhythmboxStream) {
+        this.position.showAnimate();
       }
       else {
-        this.playlists.hide();
+        this.position.hideAnimate();
       }
     }
 
-    if (newState.showTracklist !== null && this.tracklist !== null) {
-      this.showTracklist = newState.showTracklist;
-      if (this.hasTrackList && this.showTracklist) {
-        this.tracklist.show();
+    if (newState.playlistCount !== null) {
+      if (this.state.showPlaylist && this.state.playlistCount > 0) {
+        this.playlists.showAnimate();
       }
       else {
-        this.tracklist.hide();
+        this.playlists.hideAnimate();
       }
     }
 
-    if (newState.hasTrackList !== null && this.tracklist !== null) {
-      this.hasTrackList = newState.hasTrackList;
-      if (this.hasTrackList && this.showTracklist) {
-        this.tracklist.show();
+    if (newState.showPlaylist !== null) {
+      if (this.state.showPlaylist && this.state.playlistCount > 0) {
+        this.playlists.showAnimate();
       }
       else {
-        this.tracklist.hide();
+        this.playlists.hideAnimate();
       }
     }
 
-    if (newState.trackRating !== null && this.trackRatings !== null) {
-      this.trackRatings.rate(newState.trackRating);
+    if (newState.showTracklist !== null) {
+      if (this.state.hasTrackList && this.state.showTracklist) {
+        this.tracklist.showAnimate();
+      }
+      else {
+        this.tracklist.hideAnimate();
+      }
+    }
+
+    if (newState.hasTrackList !== null) {
+      if (this.state.hasTrackList && this.state.showTracklist) {
+        this.tracklist.showAnimate();
+      }
+      else {
+        this.tracklist.hideAnimate();
+      }
+    }
+
+    if (newState.trackRating !== null) {
+      if (this.state.trackRating !== 'no rating') {
+        this.trackRatings.rate(this.state.trackRating);
+        if (this.state.showRating
+            && !this.state.isRhythmboxStream
+            && this.state.status !== Settings.Status.STOP) {
+          this.trackRatings.showAnimate();
+        }
+      }
+      else {
+        let dummyRating = this.player._pithosRatings ? '' : 0;
+        this.trackRatings.rate(dummyRating);
+        this.trackRatings.hideAnimate();
+      }
     }
 
     if (newState.trackArtist !== null) {
-      this.trackBox.updateInfo(newState);
-      this.secondaryInfo.updateInfo(newState);
+      this.info.update(this.state);
     }
 
-    if (newState.volume !== null && this.volume !== null) {
+    if (newState.volume !== null) {
       // Adapted from https://github.com/GNOME/gnome-shell/blob/master/js/ui/status/volume.js
       // So that our icon changes match the system volume icon changes.
-      let value = newState.volume, volumeIcon;
+      let value = this.state.volume, volumeIcon;
       if (value === 0) {
-        volumeIcon = "audio-volume-muted-symbolic";
+        volumeIcon = 'audio-volume-muted-symbolic';
       }
       else {
         let n = Math.floor(3 * value) + 1;
         if (n < 2) {
-          volumeIcon = "audio-volume-low-symbolic";
+          volumeIcon = 'audio-volume-low-symbolic';
         }
         else if (n >= 3) {
-          volumeIcon = "audio-volume-high-symbolic";          
+          volumeIcon = 'audio-volume-high-symbolic';          
         }
         else {
-          volumeIcon = "audio-volume-medium-symbolic";
+          volumeIcon = 'audio-volume-medium-symbolic';
         }
       }
       this.volume.setIcon(volumeIcon);
       this.volume.setValue(value);
     }
 
-    if (newState.canPause !== null) {
-      if (newState.canPause) {
-        this.playButton.setCallback(Lang.bind(this.player, this.player.playPause));
-      }
-      else {
-        this.playButton.setCallback(Lang.bind(this.player, this.player.play));
-      }
-    }
-
     if (newState.canGoNext !== null) {
-      if (newState.canGoNext) {
+      if (this.state.canGoNext) {
         this.nextButton.enable();
       }
       else {
         this.nextButton.disable();
       }
+      if (!this.state.canGoNext
+          && !this.state.canGoPrevious
+          && !this.state.canPlay
+          && !this.state.canPause) {
+        this.stopButton.disable();
+      }
+      else {
+        this.stopButton.enable();
+      }
     }
 
     if (newState.canGoPrevious !== null) {
-      if (newState.canGoPrevious) {
+      if (this.state.canGoPrevious) {
         this.prevButton.enable();
       }
       else {
         this.prevButton.disable();
       }
-    }
-
-    if (newState.canSeek !== null && this.position !== null) {
-      this.position.setReactive(newState.canSeek)
-    }
-
-    if (newState.trackTime !== null && this.position !== null) {
-      if (this.trackLength === 0) {
-        this.position.actor.hide();
+      if (!this.state.canGoNext
+          && !this.state.canGoPrevious
+          && !this.state.canPlay
+          && !this.state.canPause) {
+        this.stopButton.disable();
       }
       else {
-        this.position.setValue(newState.trackTime / this.trackLength);
+        this.stopButton.enable();
+      }
+    }
+
+    if (newState.canSeek !== null) {
+      this.position.setReactive(this.state.canSeek)
+    }
+
+    if (newState.canPlay !== null) {
+      if (this.state.status !== Settings.Status.PLAY) {
+        if (this.state.canPlay) {
+           this.playButton.enable();
+        }
+        else {
+           this.playButton.disable();
+        }
+      }
+      if (!this.state.canGoNext
+          && !this.state.canGoPrevious
+          && !this.state.canPlay
+          && !this.state.canPause) {
+        this.stopButton.disable();
+      }
+      else {
+        this.stopButton.enable();
+      }
+    }
+
+    if (newState.canPause !== null) {
+      if (this.state.status === Settings.Status.PLAY) {
+        if (this.state.canPause) {
+          this.playButton.enable();
+          if (!this.state.showStopButton) {
+            this.stopButton.hide();
+          }
+        }
+        else if (!this.player.playerIsBroken) {
+           // If we're playing, we can't pause, and the player isn't broken
+           // we should show the stop button no matter what.
+           this.stopButton.show();
+           this.playButton.disable();
+        }
+      }
+      if (!this.state.canGoNext
+          && !this.state.canGoPrevious
+          && !this.state.canPlay
+          && !this.state.canPause) {
+        this.stopButton.disable();
+      }
+      else {
+        this.stopButton.enable();
+      }
+    }
+
+    if (newState.trackTime !== null) {
+      if (this.state.trackLength === 0) {
+        this.position.hideAnimate();
+      }
+      else if (this.state.status !== Settings.Status.STOP
+               && this.state.showPosition
+               && !this.state.isRhythmboxStream) {
+        this.position.setValue(this.state.trackTime / this.state.trackLength);
+        this.position.showAnimate();
       }
     }
 
     if (newState.status !== null) {
-
-      if (newState.status === Settings.Status.STOP) {
-        if (this.stopButton) {
-          this.stopButton.hide();
+      if (this.state.status === Settings.Status.PLAY) {
+        this.setPlayStatusIcon('media-playback-start-symbolic');
+        this.playButton.setIcon('media-playback-pause-symbolic');
+        if (this.state.canPause) {
+          this.playButton.enable();
+          if (!this.showStopButton) {
+            this.stopButton.hide();
+          }
         }
-        this.playButton.show();
-        this.playButton.setIcon('media-playback-start-symbolic');
-        this.trackBox.hideAnimate();
-        this.secondaryInfo.hideAnimate();
-        if (!this.playerIsBroken) {
-          this.trackRatings.actor.hide();
-          this.volume.actor.hide();
-          this.position.actor.hide();
+        else if (!this.player.playerIsBroken) {
+           // If we're playing, we can't pause, and the player isn't broken
+           // we should show the stop button no matter what.
+           this.stopButton.show();
+           this.playButton.disable();
         }
       }
       else {
-        this.trackBox.showAnimate();
-        if (this.trackCover.child.icon_size == this.largeCoverSize) {
-          this.secondaryInfo.showAnimate();
+        this.playButton.setIcon('media-playback-start-symbolic');
+        if (this.state.canPlay) {
+           this.playButton.enable();
         }
-        if (!this.playerIsBroken) {
-          if (this.showRating) {
-            this.trackRatings.actor.show();
-          }
-          if (this.showVolume) {
-            this.volume.actor.show();
-          }
-          if (this.showPosition) {
-            this.position.actor.show();
-          }
+        else {
+           this.playButton.disable();
+        }                 
+      }      
+      if (this.state.status === Settings.Status.STOP) {
+        this.setPlayStatusIcon('media-playback-stop-symbolic');
+        this.stopButton.hide();
+        this.position.hideAnimate();
+        this.shuffleLoopStatus.hideAnimate();
+        this.trackRatings.hideAnimate();
+        this.info.hideAnimate();
+        this.trackCover.hideAnimate();
+      }
+      else {
+        if (this.state.showStopButton) {
+          this.stopButton.show();
+        }
+        if (!this.state.isRhythmboxStream) {
+          this.trackCover.showAnimate();
+        }
+        if (this.state.showRating
+            && !this.state.isRhythmboxStream
+            && this.state.trackRating !== 'no rating') {
+          this.trackRatings.showAnimate();
+        }
+        this.info.showAnimate();
+        if (this.state.showPosition
+            && this.state.trackLength !== 0
+            && !this.state.isRhythmboxStream) {
+          this.position.showAnimate();
         }
       }
 
-      if (newState.status === Settings.Status.PLAY) {
-        if (this.stopButton) {
-          this.stopButton.show();
-        }
-        if (player.state.canPause) {
-          this.playButton.setIcon('media-playback-pause-symbolic');
-          this.playButton.show();
-        }
-        else {
-          this.playButton.hide();
-        }
+      if (this.state.status === Settings.Status.PAUSE) {
+        this.setPlayStatusIcon('media-playback-pause-symbolic');
       }
-      if (newState.status === Settings.Status.PAUSE) {
-        this.playButton.setIcon('media-playback-start-symbolic');
+
+      if (this.state.showLoopStatus
+          && !this.state.isRhythmboxStream
+          && this.state.status !== Settings.Status.STOP) {
+        this.shuffleLoopStatus.showAnimate();
       }
+    }
+
+    if (newState.showStopButton !== null) {
+      if (this.state.showStopButton && this.state.status !== Settings.Status.STOP) {
+        this.stopButton.show();
+      }       
+      else if (this.state.status === Settings.Status.PLAY && this.state.canPause) {
+        this.stopButton.hide();
+      }
+    }
+
+    if (newState.trackCoverUrl !== null) {
+      if (!this.state.isRhythmboxStream
+          && this.state.status !== Settings.Status.STOP) {
+        this.trackCover.showAnimate();
+      }
+      this.setCoverIconAsync(this.trackCover.icon,
+                             this.state.trackCoverUrl,
+                             '', this.player.isClementine,
+                             this.trackCover.animating);
     }
 
     if (newState.playlists !== null) {
-      this.playlists.loadPlaylists(newState.playlists);
+      this.playlists.loadPlaylists(this.state.playlists);
     }
 
-    if (newState.trackListMetaData !== null && this.tracklist !== null) {
-      this.tracklist.loadTracklist(newState.trackListMetaData, this.showTracklistRating);
+    if (newState.trackListMetaData !== null) {
+      this.tracklist.loadTracklist(this.state.trackListMetaData, this.state.showTracklistRating);
     }
 
-    if (newState.showTracklistRating !== null && this.tracklist !== null) {
-      this.showTracklistRating = newState.showTracklistRating;
-      this.tracklist.showRatings(newState.showTracklistRating);
+    if (newState.showTracklistRating !== null) {
+      this.tracklist.showRatings(this.state.showTracklistRating);
     }
 
-    if (newState.playlist !== null && this.playlists !== null) {
-      this.playlists.setObjectActive(newState.playlist);
+    if (newState.playlistObj !== null) {
+      this.playlists.setObjectActive(this.state.playlistObj);
     }
 
-    if (newState.updatedPlaylist !== null && this.playlists !== null) {
-      this.playlists.updatePlaylist(newState.updatedPlaylist);
+    if (newState.updatedPlaylist !== null) {
+      let [playlistObj, playlistTitle] = this.state.updatedPlaylist;
+      if (playlistObj == this.playlists.activeObject) {
+        this.playlistTitle.update(playlistTitle);
+      }
+      this.playlists.updatePlaylist(this.state.updatedPlaylist);
     }
 
-    if (newState.trackCoverUrl !== null || newState.isRadio !== null) {
-      this.changeCover(newState);
+    if (newState.trackObj !== null) {
+      this.tracklist.setObjectActive(this.state.trackObj);
     }
 
-    if (newState.trackObj !== null && this.tracklist !== null) {
-      this.tracklist.setObjectActive(newState.trackObj);
+    if (newState.updatedMetadata !== null) {
+      this.tracklist.updateMetadata(this.state.updatedMetadata);
     }
-
-    if (newState.updatedMetadata !== null && this.tracklist !== null) {
-      this.tracklist.updateMetadata(newState.updatedMetadata);
-    }
-  },
-
-  changeCover: function(state) {
-    let fallback_icon_name = "media-optical-cd-audio-symbolic";
-    if (state.isRadio) {
-      fallback_icon_name = "application-rss+xml-symbolic";
-    }
-    if (state.trackCoverUrl) {
-      this.setCoverIconAsync(this.trackCover.child, state.trackCoverUrl, fallback_icon_name);
-    }
-    else {
-      this.trackCover.child.icon_name = fallback_icon_name;
-    }
-  },
-
-  _toggleCover: function() {
-    let targetSize, transition;
-    if (this.trackCover.child.icon_size == this.smallCoverSize) {
-      let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
-      let adjustment = Math.round((this.largeCoverSize - this.smallCoverSize) * scaleFactor);
-      targetSize = this.largeCoverSize;
-      transition = 'easeOutQuad';
-      this.trackBox.infos.hide();
-      this.secondaryInfo.showAnimate();
-      if (!this.playerIsBroken) { 
-        this.tracklist.updateScrollbarPolicy(adjustment);
-        this.playlists.updateScrollbarPolicy(adjustment);
-      }     
-    }
-    else {
-      targetSize = this.smallCoverSize;
-      transition = 'easeInQuad';
-      this.secondaryInfo.hideAnimate();
-    }
-
-    Tweener.addTween(this.trackCover.child, {icon_size: targetSize,
-                                             time: Settings.FADE_ANIMATION_TIME,
-                                             transition: transition,
-                                             onComplete: Lang.bind(this, function() {
-                                               if (targetSize == this.smallCoverSize) { 
-                                                 this.trackBox.infos.show();
-                                                 if (!this.playerIsBroken) {
-                                                   this.tracklist.updateScrollbarPolicy();
-                                                   this.playlists.updateScrollbarPolicy();
-                                                 }
-                                               }
-                                             }
-                                           )}
-    );
   },
 
   _createPlaylistWidget: function() {
@@ -529,7 +569,7 @@ const PlayerUI = new Lang.Class({
     for (let i = 0; i < altPlaylistTitles.length; i++) {
       let obj = altPlaylistTitles[i];
       for (let key in obj){
-        if (key == this.player.info.identity) {
+        if (key == this.player.busName) {
           playlistTitle = obj[key];
           break;
         }
@@ -544,7 +584,7 @@ const PlayerUI = new Lang.Class({
     for (let i = 0; i < altTracklistTitles.length; i++) {
       let obj = altTracklistTitles[i];
       for (let key in obj){
-        if (key == this.player.info.identity) {
+        if (key == this.player.busName) {
           tracklistTitle = obj[key];
           break;
         }
@@ -553,21 +593,14 @@ const PlayerUI = new Lang.Class({
     return new Widget.TrackList(tracklistTitle, this.player);
   },
 
-
-  updateInfo: function(player, playerInfo) {
-    this.label.text = playerInfo.identity;
-    this.icon.icon_name = Lib.getPlayerSymbolicIcon(playerInfo.desktopEntry);
-  },
-
   toString: function() {
-      return "[object PlayerUI(%s)]".format(this.player.info.identity);
+      return '[object PlayerUI(%s)]'.format(this.player.busName);
   },
 
 
   destroy: function() {
     if (this._updateId) {
       this.player.disconnect(this._updateId);
-      this.player.disconnect(this._updateInfoId);
     }
     this.parent();
   }

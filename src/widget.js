@@ -20,20 +20,134 @@
 
 'use strict';
 
+const Mainloop = imports.mainloop;
 const St = imports.gi.St;
+const Atk = imports.gi.Atk;
 const PopupMenu = imports.ui.popupMenu;
 const Slider = imports.ui.slider;
-const Pango = imports.gi.Pango;
 const GLib = imports.gi.GLib;
 const Clutter = imports.gi.Clutter;
 const Gtk = imports.gi.Gtk;
 const Gio = imports.gi.Gio;
 const Lang = imports.lang;
 const Tweener = imports.ui.tweener;
+const Gettext = imports.gettext.domain('gnome-shell-extensions-mediaplayer');
+const _ = Gettext.gettext;
 
 const Me = imports.misc.extensionUtils.getCurrentExtension();
 const Settings = Me.imports.settings;
-const Lib = Me.imports.lib;
+const Util = Me.imports.util;
+const DBusIface = Me.imports.dbus;
+
+
+const SubMenu = new Lang.Class({
+    Name: 'SubMenu',
+    Extends: PopupMenu.PopupMenuBase,
+
+    _init: function(sourceActor, sourceArrow, isPlayerMenu) {
+        this.parent(sourceActor);
+        this._isPlayerMenu = isPlayerMenu;
+        this._arrow = sourceArrow;
+
+        this.actor = new St.ScrollView({style_class: 'popup-sub-menu',
+                                        hscrollbar_policy: Gtk.PolicyType.NEVER,
+                                        vscrollbar_policy: Gtk.PolicyType.NEVER});
+
+        this.actor.add_actor(this.box);
+        this.actor._delegate = this;
+        this.actor.clip_to_allocation = true;
+        this.actor.connect('key-press-event', Lang.bind(this, this._onKeyPressEvent));
+        this.actor.hide();
+    },
+
+    _needsScrollbar: function() {
+        let topMenu = this._getTopMenu();
+        let [topMinHeight, topNaturalHeight] = topMenu.actor.get_preferred_height(-1);
+        let topThemeNode = topMenu.actor.get_theme_node();
+
+        let topMaxHeight = topThemeNode.get_max_height();
+        return topMaxHeight >= 0 && topNaturalHeight >= topMaxHeight;
+    },
+
+    getSensitive: function() {
+        return this._sensitive && this.sourceActor._delegate.getSensitive();
+    },
+
+    open: function() {
+        if (this.isOpen || this.isEmpty())
+            return;
+
+        this.isOpen = true;
+        this.emit('open-state-changed', true);
+        this.actor.show();
+
+        let needsScrollbar = this._needsScrollbar();
+
+        if (needsScrollbar && !this._isPlayerMenu) {
+            this.actor.vscrollbar_policy = Gtk.PolicyType.ALWAYS;
+            this.actor.add_style_pseudo_class('scrolled');
+        } else {
+            this.actor.vscrollbar_policy = Gtk.PolicyType.NEVER;
+            this.actor.remove_style_pseudo_class('scrolled');
+        }
+
+        this._arrow.rotation_angle_z = this.actor.text_direction == Clutter.TextDirection.RTL ? -90 : 90;
+    },
+
+    close: function() {
+        if (!this.isOpen || this.isEmpty())
+            return;
+
+        this.isOpen = false;
+        this.emit('open-state-changed', false);
+
+        if (this._activeMenuItem)
+            this._activeMenuItem.setActive(false);
+        this._arrow.rotation_angle_z = 0;
+        this.actor.hide();
+    },
+
+    _onKeyPressEvent: function(actor, event) {
+        // Move focus back to parent menu if the user types Left.
+
+        if (this.isOpen && event.get_key_symbol() == Clutter.KEY_Left) {
+            this.close(BoxPointer.PopupAnimation.FULL);
+            this.sourceActor._delegate.setActive(true);
+            return Clutter.EVENT_STOP;
+        }
+
+        return Clutter.EVENT_PROPAGATE;
+    }
+});
+
+const PlayerMenu = new Lang.Class({
+  Name: 'PlayerMenu',
+  Extends: PopupMenu.PopupSubMenuMenuItem,
+
+  _init: function(label, wantIcon) {
+    this.parent(label, wantIcon);
+    this._playStatusIcon = new St.Icon({style_class: 'popup-menu-icon'});
+    this.actor.insert_child_at_index(this._playStatusIcon, 3);
+    this.menu = new SubMenu(this.actor, this._triangle, true);
+    this.menu.connect('open-state-changed', Lang.bind(this, this._subMenuOpenStateChanged));
+  },
+
+  addMenuItem: function(item) {
+    this.menu.addMenuItem(item);
+  },
+
+  setPlayStatusIcon: function(icon) {
+    this._playStatusIcon.icon_name = icon;
+  },
+
+  hidePlayStatusIcon: function() {
+    this._playStatusIcon.hide();
+  },
+
+  showPlayStatusIcon: function() {
+    this._playStatusIcon.show();
+  }
+});
 
 const BaseContainer = new Lang.Class({
     Name: "BaseContainer",
@@ -41,11 +155,81 @@ const BaseContainer = new Lang.Class({
 
     _init: function(parms) {
       this.parent(parms);
+      this._hidden = false;
+      this._animating = false;
       //We don't want our BaseContainers to be highlighted when clicked,
       //they're not really menu items in the traditional sense.
       //We want to maintain the illusion that they are normal UI containers,
       //and that our main track UI area is one big container.
       this.actor.add_style_pseudo_class = function() {return null;}
+    },
+
+    get hidden() {
+      return this._hidden;
+    },
+
+    set hidden(value) {
+      this._hidden = value;
+    },
+
+    get animating() {
+      return this._animating;
+    },
+
+    set animating(value) {
+      this._animating = value;
+    },
+
+    hide: function() {
+      this.actor.hide();
+      this.actor.opacity = 0;
+      this.actor.set_height(0);
+      this.hidden = true;
+    },
+
+    show: function() {
+      this.actor.show();
+      this.actor.opacity = 255;
+      this.actor.set_height(-1);
+      this.hidden = false;
+    },
+
+    showAnimate: function() {
+      if (!this.actor.get_stage() || !this._hidden || this.animating) {
+        return;
+      }
+      this.animating = true;
+      this.actor.set_height(-1);
+      let [minHeight, naturalHeight] = this.actor.get_preferred_height(-1);
+      this.actor.set_height(0);
+      this.actor.show();
+      Tweener.addTween(this.actor, {
+        opacity: 255,
+        height: naturalHeight,
+        time: 0.25,
+        onComplete: function() {
+          this.show();
+          this.animating = false;
+        },
+        onCompleteScope: this
+      });
+    },
+
+    hideAnimate: function() {
+      if (!this.actor.get_stage() || this._hidden || this.animating) {
+        return;
+      }
+      this.animating = true;
+      Tweener.addTween(this.actor, {
+        opacity: 0,
+        height: 0,
+        time: 0.25,
+        onComplete: function() {
+          this.hide();
+          this.animating = false;
+        },
+        onCompleteScope: this
+      });
     }
 });
 
@@ -55,11 +239,92 @@ const PlayerButtons = new Lang.Class({
 
     _init: function() {
         this.parent({hover: false});
-        this.box = new St.BoxLayout();
+        this.box = new St.BoxLayout({style_class: 'no-padding-bottom player-buttons'});
         this.actor.add(this.box, {expand: true, x_fill: false, x_align: St.Align.MIDDLE});
     },
     addButton: function(button) {
-        this.box.add_actor(button.actor);
+        this.box.add(button.actor, {expand: false});
+    }
+});
+
+const ShuffleLoopStatus = new Lang.Class({
+    Name: 'PlayerButtons',
+    Extends: BaseContainer,
+
+    _init: function(player) {
+        this.parent({hover: false});
+        this._player = player;
+        this.box = new St.BoxLayout({style_class: 'no-padding-bottom no-padding-top'});
+        this.actor.add(this.box, {expand: true, x_fill: false, x_align: St.Align.MIDDLE});
+        let shuffleIcon = new St.Icon({icon_name: 'media-playlist-shuffle-symbolic', style_class: 'popup-menu-icon'});
+        this._shuffleButton = new St.Button({child: shuffleIcon});
+        this._setButtonActive(this._shuffleButton, false);
+        this._shuffleButton.connect('notify::hover', Lang.bind(this, this._onButtonHover));
+        this._shuffleButton.connect('clicked', Lang.bind(this, function() {
+          this._player.shuffle = this._player.state.shuffle ? false : true;
+        }));
+        this.box.add(this._shuffleButton);
+        let repeatIcon = new St.Icon({icon_name: 'media-playlist-repeat-song-symbolic', style_class: 'popup-menu-icon'});
+        this._repeatButton = new St.Button({child: repeatIcon});
+        this._setButtonActive(this._repeatButton, false);
+        this._repeatButton.connect('notify::hover', Lang.bind(this, this._onButtonHover));
+        this._repeatButton.connect('clicked', Lang.bind(this, function() {
+          this._player.loopStatus = this._player.state.loopStatus == 'Track' ? 'None' : 'Track';
+        }));
+        this.box.add(this._repeatButton);
+        let repeatAllIcon = new St.Icon({icon_name: 'media-playlist-repeat-symbolic', style_class: 'popup-menu-icon'});
+        this._repeatAllButton = new St.Button({child: repeatAllIcon});
+        this._setButtonActive(this._repeatAllButton, false);
+        this._repeatAllButton.connect('notify::hover', Lang.bind(this, this._onButtonHover));
+        this._repeatAllButton.connect('clicked', Lang.bind(this, function() {
+          this._player.loopStatus = this._player.state.loopStatus == 'Playlist' ? 'None' : 'Playlist';
+        }));
+        this.box.add(this._repeatAllButton);
+    },
+
+    setLoopStaus: function (loopStatus) {
+      if (loopStatus == 'None') {
+        this._setButtonActive(this._repeatButton, false);
+        this._setButtonActive(this._repeatAllButton, false);
+      }
+      else if (loopStatus == 'Track') {
+        this._setButtonActive(this._repeatButton, true);
+        this._setButtonActive(this._repeatAllButton, false);
+      }
+      else if (loopStatus == 'Playlist') {
+        this._setButtonActive(this._repeatButton, false);
+        this._setButtonActive(this._repeatAllButton, true);
+      }
+    },
+
+    setShuffle: function (shuffle) {
+      this._setButtonActive(this._shuffleButton, shuffle);
+    },
+
+    _setButtonActive: function (button, active) {
+      button._isActive = active;
+      button.opacity = active ? 204 : 102;
+    },
+
+    _onButtonHover: function (button) {
+      button.opacity = button.hover ? 255 : button._isActive ? 204 : 102;
+    }
+});
+
+const PlaylistTitle = new Lang.Class({
+    Name: 'PlaylistTitle',
+    Extends: BaseContainer,
+
+    _init: function () {
+        this.parent({hover: false, style_class: 'no-padding-bottom'});
+        this._label = new St.Label({style_class: 'track-info-artist'});
+        this.actor.add(this._label, {expand: true, x_fill: false, x_align: St.Align.MIDDLE});
+    },
+
+    update: function(name) {
+      if (name && this._label.text != name) {
+        this._label.text = name;
+      }
     }
 });
 
@@ -67,42 +332,54 @@ const PlayerButton = new Lang.Class({
     Name: "PlayerButton",
 
     _init: function(icon, callback) {
-        let style_class;
-        if (Settings.MINOR_VERSION > 19) {
-          style_class = 'message-media-control player-button';
-        }
-        else {
-          style_class = 'system-menu-action popup-inactive-menu-item';
-        }
-        this.icon = new St.Icon({icon_name: icon, icon_size: 16});
-        this.actor = new St.Button({style_class: style_class, child: this.icon});
+        this.actor = new St.Button({child: new St.Icon({icon_name: icon})});
+        this.actor.opacity = 204;
         this.actor._delegate = this;
-        this._callback_id = this.actor.connect('clicked', callback);
-    },
-
-    setCallback: function(callback) {
-        this.actor.disconnect(this._callback_id);
-        this._callback_id = this.actor.connect('clicked', callback);
+        this.actor.connect('clicked', callback);
+        this.actor.connect('notify::hover', Lang.bind(this, function(button) {
+          this.actor.opacity = button.hover ? 255 : 204;
+        }));
     },
 
     setIcon: function(icon) {
-        this.icon.icon_name = icon;
+        this.actor.child.icon_name = icon;
+    },
+
+    setIconSize: function(style) {
+        if (style == Settings.ButtonIconStyles.CIRCULAR) {
+          this.actor.child.style_class = null;
+          this.actor.style_class = 'system-menu-action';
+        }
+        else if (style == Settings.ButtonIconStyles.SMALL) {
+          this.actor.style_class = null;
+          this.actor.child.style_class = 'popup-menu-icon';
+        }
+        else if (style == Settings.ButtonIconStyles.MEDIUM) {
+          this.actor.style_class = null;
+          this.actor.child.style_class = 'nm-dialog-header-icon medium-player-button';
+        }
+        else if (style == Settings.ButtonIconStyles.LARGE) {
+          this.actor.style_class = null;
+          this.actor.child.style_class = 'shell-mount-operation-icon large-player-button';
+        }
     },
 
     enable: function() {
         this.actor.reactive = true;
+        this.actor.opacity = 204;
     },
 
     disable: function() {
         this.actor.reactive = false;
-    },
-
-    show: function() {
-        this.actor.show();
+        this.actor.opacity = 102;
     },
 
     hide: function() {
-        this.actor.hide();
+      this.actor.hide();
+    },
+
+    show: function() {
+      this.actor.show();
     }
 });
 
@@ -110,10 +387,10 @@ const SliderItem = new Lang.Class({
     Name: "SliderItem",
     Extends: BaseContainer,
 
-    _init: function(icon, value) {
+    _init: function(icon) {
         this.parent({hover: false});
         this._icon = new St.Icon({style_class: 'popup-menu-icon', icon_name: icon});
-        this._slider = new Slider.Slider(value);
+        this._slider = new Slider.Slider(0);
 
         this.actor.add(this._icon);
         this.actor.add(this._slider.actor, {expand: true});
@@ -136,117 +413,24 @@ const SliderItem = new Lang.Class({
     }
 });
 
-const TrackBox = new Lang.Class({
+const TrackCover = new Lang.Class({
     Name: "TrackBox",
     Extends: BaseContainer,
 
-    _init: function(cover) {
-      this.parent({hover: false});
-      this._hidden = false;
-      this._cover = cover;      
-      this.infos = new St.BoxLayout({vertical: true});
-      this._artistLabel = new St.Label({style_class: 'track-info-artist'});
-      this._titleLabel = new St.Label({style_class: 'track-info-title'});
-      this._albumLabel = new St.Label({style_class: 'track-info-album'});
-      this.infos.add(this._artistLabel);
-      this.infos.add(this._titleLabel);
-      this.infos.add(this._albumLabel);
-      this._content = new St.BoxLayout({style_class: 'track-box', vertical: false}); 
-      this._content.add(this._cover);
-      this._content.add(this.infos);
-      this.actor.add(this._content, {expand: true, x_fill: false, x_align: St.Align.MIDDLE});
-    },
-
-    updateInfo: function(state) {
-      this._artistLabel.text = state.trackArtist.toString();
-      if (this._artistLabel.text == "") {
-        this._artistLabel.hide();
-      }
-      else {
-        this._artistLabel.show();
-      }        
-      this._titleLabel.text = state.trackTitle.toString();
-      if (this._titleLabel.text == "") {
-        this._titleLabel.hide();
-      }
-      else {
-        this._titleLabel.show();
-      }
-      this._albumLabel.text = state.trackAlbum.toString();
-      if (this._albumLabel.text == "") {
-        this._albumLabel.hide();
-      }
-      else {
-        this._albumLabel.show();
-      }
-    },
-
-    get hidden() {
-      return this._hidden;
-    },
-
-    set hidden(value) {
-      this._hidden = value;
-    },
-
-    hide: function() {
-      this.actor.hide();
-      this.actor.opacity = 0;
-      this.actor.set_height(0);
-      this.hidden = true;
-    },
-
-    show: function() {
-      this.actor.show();
-      this.actor.opacity = 255;
-      this.actor.set_height(-1);
-      this.hidden = false;
-    },
-
-    showAnimate: function() {
-      if (!this.actor.get_stage() || !this._hidden)
-        return;
-
-      this.actor.set_height(-1);
-      let [minHeight, naturalHeight] = this.actor.get_preferred_height(-1);
-      this.actor.set_height(0);
-      this.actor.show();
-      Tweener.addTween(this.actor, {
-        opacity: 255,
-        height: naturalHeight,
-        time: Settings.FADE_ANIMATION_TIME,
-        transition: 'easeOutQuad',
-        onComplete: function() {
-          this.show();
-        },
-        onCompleteScope: this
-      });
-    },
-
-    hideAnimate: function() {
-      if (!this.actor.get_stage() || this._hidden)
-        return;
-
-      Tweener.addTween(this.actor, {
-        opacity: 0,
-        height: 0,
-        time: Settings.FADE_ANIMATION_TIME,
-        transition: 'easeOutQuad',
-        onComplete: function() {
-          this.hide();
-        },
-        onCompleteScope: this
-      });
+    _init: function(icon) {
+      this.parent({hover: false, style_class: 'no-padding-bottom'});
+      this.icon = icon;
+      this.actor.add(this.icon, {expand: true, x_fill: false, x_align: St.Align.MIDDLE});
     }
 });
 
-const SecondaryInfo = new Lang.Class({
+const Info = new Lang.Class({
     Name: "SecondaryInfo",
     Extends: BaseContainer,
 
     _init: function() {
       this.parent({hover: false, style_class: 'no-padding-bottom'});
-      this._hidden = false;     
+      this._animateChange = Util.animateChange;     
       this.infos = new St.BoxLayout({vertical: true});
       this._artistLabel = new St.Label({style_class: 'track-info-artist'});
       this._titleLabel = new St.Label({style_class: 'track-info-title'});
@@ -257,86 +441,81 @@ const SecondaryInfo = new Lang.Class({
       this.actor.add(this.infos, {expand: true, x_fill: false, x_align: St.Align.MIDDLE});
     },
 
-    updateInfo: function(state) {
-      this._artistLabel.text = state.trackArtist.toString();
-      if (this._artistLabel.text == "") {
-        this._artistLabel.hide();
+    update: function(state) {
+      this._setInfoText(this._artistLabel, state.trackArtist);
+      this._setInfoText(this._titleLabel, state.trackTitle);
+      this._setInfoText(this._albumLabel, state.trackAlbum);
+    },
+
+    _setInfoText: function(actor, text) {
+      if (text) {
+        if (actor.text != text) {
+          this._showAnimateInfoItem(actor, text);
+        }
       }
       else {
-        this._artistLabel.show();
-      }        
-      this._titleLabel.text = state.trackTitle.toString();
-      if (this._titleLabel.text == "") {
-        this._titleLabel.hide();
+        this._hideAnimateInfoItem(actor, text);
+      }
+    },
+
+    _hideInfoItem: function(actor) {
+      actor.hide();
+      actor.opacity = 0;
+      actor.set_height(0);
+    },
+
+    _showInfoItem: function(actor) {
+      actor.show();
+      actor.opacity = 255;
+      actor.set_height(-1);
+    },
+
+    _showAnimateInfoItem: function(actor, text) {
+      if (actor.visible && !this.animating) {
+        this._animateChange(actor, 'text', text);
+      }
+      else if (this.animating) {
+        actor.text = text;
+        this._showInfoItem(actor);
       }
       else {
-        this._titleLabel.show();
+        actor.text = text;
+        actor.set_height(-1);
+        let [minHeight, naturalHeight] = actor.get_preferred_height(-1);
+        actor.set_height(0);
+        actor.show();
+        Tweener.addTween(actor, {
+          height: naturalHeight,
+          time: 0.25,
+          opacity: 255,
+          onComplete: function() {
+            this._showInfoItem(actor);
+          },
+          onCompleteScope: this
+        });
       }
-      this._albumLabel.text = state.trackAlbum.toString();
-      if (this._albumLabel.text == "") {
-        this._albumLabel.hide();
+    },
+
+    _hideAnimateInfoItem: function(actor, text) {
+      if (!actor.visible && !this.animating) {
+        actor.text = text;
+      }
+      else if (this.animating) {
+        this._hideInfoItem(actor);
+        actor.text = text;
       }
       else {
-        this._albumLabel.show();
+        Tweener.addTween(actor, {
+          height: 0,
+          time: 0.25,
+          opacity: 0,
+          onComplete: function() {
+            this._hideInfoItem(actor);
+            actor.text = text;
+          },
+          onCompleteScope: this
+        });
       }
-    },
-
-    get hidden() {
-      return this._hidden;
-    },
-
-    set hidden(value) {
-      this._hidden = value;
-    },
-
-    hide: function() {
-      this.actor.hide();
-      this.actor.opacity = 0;
-      this.actor.set_height(0);
-      this.hidden = true;
-    },
-
-    show: function() {
-      this.actor.show();
-      this.actor.opacity = 255;
-      this.actor.set_height(-1);
-      this.hidden = false;
-    },
-
-    showAnimate: function() {
-      if (!this.actor.get_stage() || !this._hidden)
-        return;
-
-      this.actor.set_height(-1);
-      let [minHeight, naturalHeight] = this.actor.get_preferred_height(-1);
-      this.actor.set_height(0);
-      this.actor.show();
-      Tweener.addTween(this.actor, {
-        opacity: 255,
-        height: naturalHeight,
-        time: Settings.FADE_ANIMATION_TIME,
-        transition: 'easeOutQuad',
-        onComplete: function() {
-          this.show();
-        },
-        onCompleteScope: this
-      });
-    },
-
-    hideAnimate: function() {
-      if (!this.actor.get_stage() || this._hidden)
-        return;
-
-      Tweener.addTween(this.actor, {
-        opacity: 0,
-        height: 0,
-        time: Settings.FADE_ANIMATION_TIME,
-        transition: 'easeInQuad',
-        onComplete: function() {
-          this.hide();
-        },
-        onCompleteScope: this
-      });
     }
 });
 
@@ -345,37 +524,54 @@ const TrackRating = new Lang.Class({
     Extends: BaseContainer,
 
     _init: function(player, value) {
+        this._hidden = false;
         this._player = player;
-        this._nuvolaRatingProxy = this.getNuvolaRatingProxy();
-        this._rhythmbox3Proxy = this.getRhythmbox3Proxy();
-        this.parent({style_class: "track-rating", hover: false});
-        this.box = new St.BoxLayout({style_class: 'no-padding'});
+        this._animateChange = Util.animateChange;
+        this.parent({style_class: 'no-padding-bottom', hover: false});
+        this.box = new St.BoxLayout({style_class: 'no-padding track-info-album'});
         this.actor.add(this.box, {expand: true, x_fill: false, x_align: St.Align.MIDDLE});
-        // Supported players (except for Nuvola Player)
-        this._supported = {
-            "org.mpris.MediaPlayer2.banshee": this.applyBansheeRating,
-            "org.mpris.MediaPlayer2.rhythmbox": this.applyRhythmbox3Rating,
-            "org.mpris.MediaPlayer2.guayadeque": this.applyGuayadequeRating,
-            "org.mpris.MediaPlayer2.quodlibet": this.applyQuodLibetRating,
-            "org.mpris.MediaPlayer2.Lollypop": this.applyLollypopRating
-        };
-        this._buildStars(value);
+        this._applyFunc = null;
+        this._value = null;
+        this._isNuvolaPlayer = false;
+        this._rhythmbox3Proxy = false;
+        if (this._player._pithosRatings) {
+          this.rate = this._ratePithos;
+          this._buildPithosRatings();
+        }
+        else {
+          if (this._player._ratingsExtension) {
+            this._applyFunc = this.applyRatingsExtension;
+          }
+          else {
+            this._isNuvolaPlayer = this._player.busName.indexOf("org.mpris.MediaPlayer2.NuvolaApp") != -1;
+            if (this._isNuvolaPlayer) {
+              this._applyFunc = this.applyNuvolaRating;
+            }
+            else {
+              // Supported players (except for Nuvola Player & Pithos)
+              let supported = {
+                  "org.mpris.MediaPlayer2.rhythmbox": this.applyRhythmbox3Rating,
+                  "org.mpris.MediaPlayer2.quodlibet": this.applyQuodLibetRating,
+                  "org.mpris.MediaPlayer2.Lollypop": this.applyLollypopRating
+              };
+              if (supported[this._player.busName]) {
+                this._rhythmbox3Proxy = new DBusIface.RhythmboxRatings(this._player.busName);
+                this._applyFunc = supported[this._player.busName];
+              }
+            }
+          }
+          this.rate = this._rate;
+          this._buildStars();
+        }
     },
 
-    _buildStars: function(value) {
-        this._value = Math.min(Math.max(0, value), 5);
+    _buildStars: function() {
         this._starButton = [];
         for(let i=0; i < 5; i++) {
-            let icon_name = 'non-starred-symbolic';
-            let starred = false;
-            if (i < this._value) {
-                icon_name = 'starred-symbolic';
-                starred = true;
-            }
             // Create star icons
             let starIcon = new St.Icon({style_class: 'popup-menu-icon star-icon',
-                                             icon_name: icon_name
-                                             });
+                                        icon_name: 'non-starred-symbolic'
+                                       });
             // Create the button with starred icon
             this._starButton[i] = new St.Button({x_align: St.Align.MIDDLE,
                                                  y_align: St.Align.MIDDLE,
@@ -383,160 +579,149 @@ const TrackRating = new Lang.Class({
                                                  child: starIcon
                                                 });
             this._starButton[i]._rateValue = i + 1;
-            this._starButton[i]._starred = starred;
-            this._starButton[i].connect('notify::hover', Lang.bind(this, this.newRating));
-            this._starButton[i].connect('clicked', Lang.bind(this, this.applyRating));
-
+            if (this._applyFunc) {
+                this._starButton[i].connect('notify::hover', Lang.bind(this, function(button) {
+                  if (!this._isNuvolaPlayer || this.player._mediaServerPlayer.NuvolaCanRate) {
+                    let value = button.hover ? button._rateValue : this._value;
+                    for (let i = 0; i < 5; i++) {
+                      this._starButton[i].child.icon_name = i < value ? 'starred-symbolic' : 'non-starred-symbolic';
+                    }
+                  }
+                }));
+                this._starButton[i].connect('clicked', Lang.bind(this, function(button) {
+                  let rateValue = button._rateValue == this._value ? 0 : button._rateValue;
+                  this._applyFunc(rateValue);
+                }));
+            }
             // Put the button in the box
-            this.box.add_child(this._starButton[i]);
+            this.box.add(this._starButton[i]);
         }
     },
 
-    newRating: function(button) {
-        if (this._supported[this._player.busName] || this.nuvolaRatingSupported()) {
-            if (button.hover) {
-                this.hoverRating(button._rateValue);
+    _buildPithosRatings: function() {
+        this.box.add_style_class_name('pithos-rating-box');
+        this._ratingsIcon = new St.Icon({style_class: 'popup-menu-icon no-padding'});
+        this._unRateButton = new St.Button({x_align: St.Align.MIDDLE,
+                                            y_align: St.Align.MIDDLE,
+                                            child: this._ratingsIcon
+                                           })
+        this.box.add(this._unRateButton);
+        this._loveButton = new St.Button();
+        this.box.add(this._loveButton);
+        this._banButton = new St.Button();
+        this.box.add(this._banButton);
+        this._tiredButton = new St.Button();
+        this.box.add(this._tiredButton);
+        this._loveButton.label = _("Love");
+        this._banButton.label = _("Ban");
+        this._tiredButton.label = _("Tired");
+        this._callbackId = 0;
+        this._unRateButton.connect('clicked', Lang.bind(this, function() {
+            this._player._pithosRatings.UnRateSongRemote(this._player.state.trackObj);
+        }));
+        this._banButton.connect('clicked', Lang.bind(this, function() {
+            this._player._pithosRatings.BanSongRemote(this._player.state.trackObj);
+        }));
+        this._tiredButton.connect('clicked', Lang.bind(this, function() {
+            this._player._pithosRatings.TiredSongRemote(this._player.state.trackObj);
+        }));
+        this._unRateButton.hide();
+        this.box.set_width(-1);
+    },
+
+    _ratePithos: function(rating) {
+        if (this._value == rating) {
+          return;
+        }
+         if (this._callbackId!== 0) {
+             this._loveButton.disconnect(this._callbackId);
+         }
+         // Tired or banned song won't show up in the trackbox,
+         // and if a song is banned or set tired it will be skipped automatically.
+         // Pithos doesn't even send metadata updates for the current song if it's banned or set tired.
+         // The only ratings we need to worry about are unrated and loved.
+         if (rating == '') {
+             this._ratingsIcon.icon_name = null;
+             this._unRateButton.hide();
+             this._loveButton.label = _("Love");
+             this._callbackId = this._loveButton.connect('clicked', Lang.bind(this, function() {
+                 this._player._pithosRatings.LoveSongRemote(this._player.state.trackObj);
+             }));
+         }
+         else if (rating == 'love') {
+             this._ratingsIcon.icon_name = 'emblem-favorite-symbolic'
+             this._unRateButton.show();
+             this._loveButton.label = _("UnLove");
+             this._callbackId = this._loveButton.connect('clicked', Lang.bind(this, function() {
+                 this._player._pithosRatings.UnRateSongRemote(this._player.state.trackObj);
+             }));
+         }
+         this._value = rating;
+         this.box.set_width(-1);      
+    },
+
+    _rate: function(value) {
+        // For Pithos versions without ratings support.
+        if (value.constructor === String) {
+          value = value == 'love' ? 5 : 0;
+        }
+        else {
+          value = Math.min(Math.max(0, value), 5);
+        }
+        if (this._value == value) {
+          return;
+        }
+        this._value = value;       
+        for (let i = 0; i < 5; i++) {
+            let icon_name = i < this._value ? 'starred-symbolic' : 'non-starred-symbolic';
+            if (this.animating) {
+              this._starButton[i].child.icon_name = icon_name;
             }
             else {
-                this.rate(this._value);
+              let starChild = this._starButton[i].child;
+              Mainloop.timeout_add(50 * i, Lang.bind(this, function() {
+                this._animateChange(starChild, 'icon_name', icon_name);
+                return false;
+              }));
             }
         }
-    },
-
-    hoverRating: function(value) {
-        for (let i = 0; i < 5; i++) {
-            let icon_name = 'non-starred-symbolic';
-            if (i < value) {
-                icon_name = 'starred-symbolic';
-            }
-            this._starButton[i].child.icon_name = icon_name;
-        }
-    },
-
-    rate: function(value) {
-        value = Math.min(Math.max(0, value), 5);
-        for (let i = 0; i < 5; i++) {
-            let icon_name = 'non-starred-symbolic';
-            let starred = false;
-            if (i < value) {
-                icon_name = 'starred-symbolic';
-                starred = true;
-            }
-            this._starButton[i].child.icon_name = icon_name;
-            this._starButton[i]._starred = starred;
-        }
-        this._value = value;
-    },
-
-    applyRating: function(button) {
-        let rateValue;
-        // Click on a already starred icon, unrates
-        if (button._starred && button._rateValue == this._value)
-            rateValue = 0;
-        else
-            rateValue = button._rateValue;
-        // Apply the rating in the player
-        let applied = false;
-        if (this._supported[this._player.busName]) {
-            let applyFunc = Lang.bind(this, this._supported[this._player.busName]);
-            applied = applyFunc(rateValue);
-        }
-        else if (this._nuvolaRatingProxy) {
-            applied = this.applyNuvolaRating(rateValue);
-        }
-        if (applied) {
-            this.rate(rateValue);
-        }
-    },
-
-    applyBansheeRating: function(value) {
-        GLib.spawn_command_line_async("banshee --set-rating=%s".format(value));
-        return true;
-    },
-
-    applyGuayadequeRating: function(value) {
-        GLib.spawn_command_line_async("guayadeque --set-rating=%s".format(value));
-        return true;
     },
 
     applyQuodLibetRating: function(value) {
-        // Quod Libet works on 0.0 to 1.0 scores
+        // Quod Libet works on 0.0 to 1.0 scores.
+        // Quod Libet also does the right thing and emits a prop change signal
+        // on ratings changes so we don't have to fake it and set it ourself.
         GLib.spawn_command_line_async("quodlibet --set-rating=%f".format(value / 5.0));
-        return true;
     },
 
     applyLollypopRating: function(value) {
+        // Lollypop works on 0 to 5 scores.
+        // Lollypop also does the right thing and emits a prop change signal
+        // on ratings changes so we don't have to fake it and set it ourself.
         GLib.spawn_command_line_async("lollypop --set-rating=%s".format(value));
-        return true;
     },
 
     applyRhythmbox3Rating: function(value) {
-        if (this._rhythmbox3Proxy && this._player.state.trackUrl) {
+        if (this._player.state.trackUrl) {
             this._rhythmbox3Proxy.SetEntryPropertiesRemote(this._player.state.trackUrl,
                                                            {rating: GLib.Variant.new_double(value)});
-            return true;
+          // Rhythmbox doesn't emit a prop change signal when we rate the song but it will more
+          // than likely stick so we just fake it...
+          this.rate(value);
         }
-
-        return false;
-    },
-
-    getRhythmbox3Proxy: function() {
-        if (this._player.busName != 'org.mpris.MediaPlayer2.rhythmbox') {
-          return false;
-        }
-        const Rhythmbox3Iface = '<node>\
-            <interface name="org.gnome.Rhythmbox3.RhythmDB">\
-                <method name="SetEntryProperties">\
-                    <arg type="s" direction="in" />\
-                    <arg type="a{sv}" direction="in" />\
-                </method>\
-            </interface>\
-        </node>';
-        const Rhythmbox3Proxy = Gio.DBusProxy.makeProxyWrapper(Rhythmbox3Iface);
-        let proxy = new Rhythmbox3Proxy(Gio.DBus.session, "org.gnome.Rhythmbox3",
-                                        "/org/gnome/Rhythmbox3/RhythmDB");
-        return proxy;
-    },
-
-    getNuvolaRatingProxy: function() {
-        /* Web apps running in the Nuvola Player runtime are named "org.mpris.MediaPlayer2.NuvolaAppFooBarBaz" */
-        if (this._player.busName.indexOf("org.mpris.MediaPlayer2.NuvolaApp") !== 0) {
-            return false;
-        }
-        const NuvolaRatingIface = '<node>\
-            <interface name="org.mpris.MediaPlayer2.Player">\
-                <method name="NuvolaSetRating">\
-                    <arg type="d" direction="in" />\
-                </method>\
-                <property name="NuvolaCanRate" type="b" access="read" />\
-            </interface>\
-        </node>';
-        const NuvolaRatingProxy = Gio.DBusProxy.makeProxyWrapper(NuvolaRatingIface);
-        let proxy = new NuvolaRatingProxy(Gio.DBus.session, this._player.busName,
-                                                        "/org/mpris/MediaPlayer2");
-        return proxy;
-    },
-    
-    nuvolaRatingSupported: function() {
-        let proxy = this._nuvolaRatingProxy;
-        if (proxy) {
-            return proxy.NuvolaCanRate;
-        }
-        return false;
     },
     
     applyNuvolaRating: function(value) {
-        let proxy = this._nuvolaRatingProxy;
-        if (proxy && proxy.NuvolaCanRate) {
-            proxy.NuvolaSetRatingRemote(value / 5.0);
-            return true;
+        if (this.player._mediaServerPlayer.NuvolaCanRate) {
+            this.player._mediaServerPlayer.NuvolaSetRatingRemote(value / 5.0);
         }
-        return false;
     },
-    
-    destroy: function() {
-        this.actor.destroy();
-    },
+
+    applyRatingsExtension: function(value) {
+        if (this._player.state.trackObj) {
+            this._player._ratingsExtension.SetRatingRemote(this._player.state.trackObj, value / 5.0);
+        }
+    }
 });
 
 const ListSubMenu = new Lang.Class({
@@ -547,83 +732,63 @@ const ListSubMenu = new Lang.Class({
     this.parent(label, false);
     this.activeObject = null;
     this._hidden = false;
-    //We have to MonkeyPatch open and close
-    //So our nested menus don't close their parent menu
-    //and to completely disable animation.
-    this.menu.close = Lang.bind(this, this.close);
-    this.menu.open = Lang.bind(this, this.open);
+    this.menu = new SubMenu(this.actor, this._triangle, false);
+    this.menu.connect('open-state-changed', Lang.bind(this, this._subMenuOpenStateChanged));
   },
 
-  close: function(animate) {
-    if (!this.menu.isOpen) {
-      return;
-    }
-    this.menu.isOpen = false;
-    if (this.menu._activeMenuItem) {
-      this.menu._activeMenuItem.setActive(false);
-    }
-    this.menu.actor.hide();
-    this.menu._arrow.rotation_angle_z = 0;
+  get hidden() {
+    return this._hidden;
   },
 
-
-  open: function(animate) {
-    if (this.menu.isOpen || this._hidden || this.menu.isEmpty()) {
-      return;
-    }
-    this.menu.isOpen = true;
-    this.emit('ListSubMenu-opened');
-    this.menu.actor.show();
-    this.updateScrollbarPolicy();
-    this.menu._arrow.rotation_angle_z = this.menu.actor.text_direction == Clutter.TextDirection.RTL ? -90 : 90;   
-  },
-
-  show: function() {
-    this._hidden = false;
-    this.actor.show();
+  set hidden(value) {
+    this._hidden = value;
   },
 
   hide: function() {
-    this._hidden = true;
-    this.close();
+    this.menu.close();
     this.actor.hide();
+    this.actor.opacity = 0;
+    this.actor.set_height(0);
+    this.hidden = true;
   },
 
-  setScrollbarPolicyAllways: function() {
-    this.menu.actor.vscrollbar_policy = Gtk.PolicyType.ALWAYS;
-  },
+  show: function() {
+    this.actor.show();
+    this.actor.opacity = 255;
+    this.actor.set_height(-1);
+    this.hidden = false;
+  }, 
 
-  updateScrollbarPolicy: function(adjustment) {
-    if (!this.menu.isOpen) {
+  showAnimate: function() {
+    if (!this.actor.get_stage() || !this._hidden)
       return;
-    }
-    this.menu.actor.vscrollbar_policy = Gtk.PolicyType.NEVER; 
-    let goingToNeedScrollbar = this.needsScrollbar(adjustment);
-    this.menu.actor.vscrollbar_policy = 
-      goingToNeedScrollbar ? Gtk.PolicyType.ALWAYS : Gtk.PolicyType.NEVER;
-
-    if (goingToNeedScrollbar) {
-      this.menu.actor.add_style_pseudo_class('scrolled');
-    }
-    else {
-      this.menu.actor.remove_style_pseudo_class('scrolled');
-    }
+    this.actor.set_height(-1);
+    let [minHeight, naturalHeight] = this.actor.get_preferred_height(-1);
+    this.actor.set_height(0);
+    this.actor.show();
+    Tweener.addTween(this.actor, {
+      opacity: 255,
+      height: naturalHeight,
+      time: 0.25,
+      onComplete: function() {
+        this.show();
+      },
+      onCompleteScope: this
+    });
   },
 
-  needsScrollbar: function(adjustment) {
-    //GNOME Shell is really bad at deciding when to reserve space for a scrollbar...
-    //This is a reimplementation of:
-    //https://github.com/GNOME/gnome-shell/blob/30e17036e8bec8dd47f68eb6b1d3cfe3ca037caf/js/ui/popupMenu.js#L925
-    //That takes an optional adjustment value to see if we're going to need a scrollbar in the future.
-    //It's not perfect but it works better than the default implementation for our purposes.
-    if (!adjustment) {
-      adjustment = 0;
-    }
-    let topMenu = this._getTopMenu();
-    let [topMinHeight, topNaturalHeight] = topMenu.actor.get_preferred_height(-1);
-    let topThemeNode = topMenu.actor.get_theme_node();
-    let topMaxHeight = topThemeNode.get_max_height();
-    return topMaxHeight >= 0 && topNaturalHeight + adjustment > topMaxHeight;
+  hideAnimate: function() {
+    if (!this.actor.get_stage() || this._hidden)
+      return;
+    Tweener.addTween(this.actor, {
+      opacity: 0,
+      height: 0,
+      time: 0.25,
+      onComplete: function() {
+        this.hide();
+      },
+      onCompleteScope: this
+    });
   },
 
   setObjectActive: function(objPath) {
@@ -663,8 +828,20 @@ const ListSubMenu = new Lang.Class({
       return values;
     }, {});
     return Object.keys(unique).length === objects.length;
-  }
+  },
 
+  _subMenuOpenStateChanged: function(menu, open) {
+    if (open) {
+      this.actor.add_style_pseudo_class('open');
+      this.actor.add_accessible_state(Atk.StateType.EXPANDED);
+      this.actor.add_style_pseudo_class('checked');
+    }
+    else {
+      this.actor.remove_style_pseudo_class('open');
+      this.actor.remove_accessible_state (Atk.StateType.EXPANDED);
+      this.actor.remove_style_pseudo_class('checked');
+    }
+  }
 });
 
 const TrackList = new Lang.Class({
@@ -674,15 +851,13 @@ const TrackList = new Lang.Class({
   _init: function(label, player) {
     this.parent(label);
     this.player = player;
-    this.parseMetadata = Lib.parseMetadata;
+    this.parseMetadata = Util.parseMetadata;
   },
 
   showRatings: function(value) {
-    this.setScrollbarPolicyAllways();
     this.menu._getMenuItems().forEach(function(tracklistItem) {
       tracklistItem.showRatings(value);
     });
-    this.updateScrollbarPolicy();
   },
 
   updateMetadata: function(UpdatedMetadata) {
@@ -690,13 +865,6 @@ const TrackList = new Lang.Class({
     this.parseMetadata(UpdatedMetadata, metadata);
     let trackListItem = this.getItem(metadata.trackObj);
     if (trackListItem) {
-      metadata.fallbackIcon = 'media-optical-cd-audio-symbolic';
-      if (Array.isArray(metadata.trackArtist)) {
-        metadata.trackArtist = metadata.trackArtist[0];
-      }
-      if (metadata.isRadio) {
-        metadata.fallbackIcon = 'application-rss+xml-symbolic';
-      }
       trackListItem.updateMetadata(metadata);
     }
   },
@@ -707,7 +875,6 @@ const TrackList = new Lang.Class({
     //If we don't have unique object paths reject the whole array.
     let hasUniqueObjPaths = this.hasUniqueObjPaths(trackListMetaData, true);
     if (hasUniqueObjPaths) {
-      this.setScrollbarPolicyAllways();
       trackListMetaData.forEach(Lang.bind(this, function(trackMetadata) {
         let metadata = {};
         this.parseMetadata(trackMetadata, metadata);
@@ -715,14 +882,7 @@ const TrackList = new Lang.Class({
         //As per spec the "/org/mpris/MediaPlayer2/TrackList/NoTrack" object path means it's not a valid track.
         if (metadata.trackObj && metadata.trackObj !== '/org/mpris/MediaPlayer2/TrackList/NoTrack') {
           metadata.showRatings = showRatings;
-          metadata.fallbackIcon = 'media-optical-cd-audio-symbolic';
-          if (Array.isArray(metadata.trackArtist)) {
-            metadata.trackArtist = metadata.trackArtist[0];
-          }
-          if (metadata.isRadio) {
-            metadata.fallbackIcon = 'application-rss+xml-symbolic';
-          }
-          let trackUI = new TracklistItem(metadata);
+          let trackUI = new TracklistItem(metadata, this.player);
           trackUI.connect('activate', Lang.bind(this, function() {
             this.player.playTrack(trackUI.obj);
           }));
@@ -732,7 +892,6 @@ const TrackList = new Lang.Class({
       if (this.activeObject) {
         this.setObjectActive(this.activeObject);
       }
-      this.updateScrollbarPolicy();
     }
   }
 
@@ -753,7 +912,6 @@ const Playlists = new Lang.Class({
     //If we don't have unique object paths reject the whole array.
     let hasUniqueObjPaths = this.hasUniqueObjPaths(playlists);
     if (hasUniqueObjPaths) {
-      this.setScrollbarPolicyAllways();
       playlists.forEach(Lang.bind(this, function(playlist) {
         let [obj, name] = playlist;
         //Don't add playlists with just "/" as the object path.
@@ -770,7 +928,6 @@ const Playlists = new Lang.Class({
       if (this.activeObject) {
         this.setObjectActive(this.activeObject);
       }
-      this.updateScrollbarPolicy();
     }
   },
 
@@ -784,23 +941,9 @@ const Playlists = new Lang.Class({
 
 });
 
-const ListSubMenuItem = new Lang.Class({
-    Name: "ListSubMenuItem",
-    Extends: PopupMenu.PopupBaseMenuItem,
-
-    _init: function () {
-        this.parent();
-        // We have to replace the _ornamentLabel so that it's vertically centered.
-        this.actor.remove_actor(this._ornamentLabel);
-        this._ornamentLabel = new St.Label({style_class: 'popup-menu-ornament'});
-        this.actor.add(this._ornamentLabel, {y_expand: true, y_fill: false, y_align: St.Align.MIDDLE});
-    }
-
-});
-
 const PlaylistItem = new Lang.Class({
     Name: "PlaylistItem",
-    Extends: ListSubMenuItem,
+    Extends: PopupMenu.PopupBaseMenuItem,
 
     _init: function (text, obj) {
         this.parent();
@@ -819,99 +962,250 @@ const PlaylistItem = new Lang.Class({
 
 const TracklistItem = new Lang.Class({
     Name: "TracklistItem",
-    Extends: ListSubMenuItem,
+    Extends: PopupMenu.PopupBaseMenuItem,
 
-    _init: function (metadata) {
+    _init: function (metadata, player) {
         this.parent();
+        this.actor.child_set_property(this._ornamentLabel, "y-fill", false);
+        this.actor.child_set_property(this._ornamentLabel, "y-align", St.Align.MIDDLE);
+        this._player = player;
+        this._loveCallbackId = 0;
+        this._banCallbackId = 0;
+        this._tiredCallbackId = 0;
         this.obj = metadata.trackObj;
-        this._setCoverIconAsync = Lib.setCoverIconAsync;
+        this._setCoverIconAsync = Util.setCoverIconAsync;
+        this._animateChange = Util.animateChange;
         this._rating = null;
-        this._coverIcon = new St.Icon({icon_name: metadata.fallbackIcon, icon_size: 24});
-        if (Settings.MINOR_VERSION > 19) {
-          this._coverIcon.add_style_class_name('media-message-cover-icon fallback no-padding');
-        }
-        this._artistLabel = new St.Label({text: metadata.trackArtist, style_class: 'tracklist-artist'});
-        this._titleLabel = new St.Label({text: metadata.trackTitle, style_class: 'track-info-album'});
-        this._ratingBox = new St.BoxLayout({style_class: 'no-padding'});
+        this._coverIcon = new St.Icon({style_class: 'small-cover-icon'});
+        let _icon_box = new St.BoxLayout({height: 48, width: 48});
+        _icon_box.add(this._coverIcon, {y_fill: false, y_align: St.Align.MIDDLE});
+        this._artistLabel = new St.Label({style_class: 'track-info-artist'});
+        this._titleLabel = new St.Label({style_class: 'track-info-title'});
+        this._albumLabel = new St.Label({style_class: 'track-info-album'});
+        this._ratingBox = new St.BoxLayout({style_class: 'no-padding track-info-album'});
         this._ratingBox.hide();
         this._box = new St.BoxLayout({vertical: true});
-        this._box.add_child(this._artistLabel);
-        this._box.add_child(this._titleLabel);
-        this._box.add_child(this._ratingBox);
-        this.actor.add(this._coverIcon, {y_expand: false, y_fill: false, y_align: St.Align.MIDDLE});
-        this.actor.add(this._box, {y_expand: false, y_fill: false, y_align: St.Align.MIDDLE});
-        this._buildStars(metadata.trackRating);
-        this.showRatings(metadata.showRatings);
-        this._setCoverIcon(metadata.trackCoverUrl, metadata.fallbackIcon);
+        this._box.add(this._artistLabel, {expand: true, y_fill: false, y_align: St.Align.MIDDLE});
+        this._box.add(this._titleLabel, {expand: true, y_fill: false, y_align: St.Align.MIDDLE});
+        this._box.add(this._albumLabel, {expand: true, y_fill: false, y_align: St.Align.MIDDLE});
+        this._box.add(this._ratingBox, {expand: true, y_fill: false, y_align: St.Align.MIDDLE});
+        this.actor.add(_icon_box, {y_fill: false, y_align: St.Align.MIDDLE});
+        this.actor.add(this._box, {y_fill: false, y_align: St.Align.MIDDLE});
+        this._validRatings = metadata.trackRating != 'no rating';
+        if (this._player._pithosRatings) {
+          this._rate = this._setPithosRating;
+          if (this._validRatings) {
+            this._buildPithosRatings(metadata.trackRating);
+            this.showRatings(metadata.showRatings);
+          }
+          else {
+            this._buildPithosRatings('');
+            this.showRatings(false);
+          }
+        }
+        else {
+          this._rate = this._setStarRating;
+          if (this._validRatings) {
+            this._buildStars(metadata.trackRating);
+            this.showRatings(metadata.showRatings);
+          }
+          else {
+            this._buildStars(0);
+            this.showRatings(false);
+          }
+        }
+        this.updateMetadata(metadata);
     },
 
     updateMetadata: function(metadata) {
-      this._setCoverIcon(metadata.trackCoverUrl, metadata.fallbackIcon);
+      this._setCoverIconAsync(this._coverIcon, metadata.trackCoverUrl);
       this._setArtist(metadata.trackArtist);
       this._setTitle(metadata.trackTitle);
-      this._setRating(metadata.trackRating);
+      this._setAlbum(metadata.trackAlbum);
+      this._validRatings = metadata.trackRating != 'no rating';
+      if (this._validRatings) {
+        this._rate(metadata.trackRating);
+      }
+      else {
+        this.showRatings(false);
+      }
     },
 
     _setArtist: function(artist) {
       if (this._artistLabel.text != artist) {
-        this._artistLabel.text = artist;
+        this._animateChange(this._artistLabel, 'text', artist);
       }
     },
 
     _setTitle: function(title) {
       if (this._titleLabel.text != title) {
-        this._titleLabel.text = title;
+        this._animateChange(this._titleLabel, 'text', title);
       }
     },
 
-    _setCoverIcon: function(coverUrl, fallbackIcon) {
-      if (coverUrl) {
-        this._setCoverIconAsync(this._coverIcon, coverUrl, fallbackIcon);
-      }
-      else {
-        this._coverIcon.icon_name = fallbackIcon;
+    _setAlbum: function(album) {
+      if (this._albumLabel.text != album) {
+        this._animateChange(this._albumLabel, 'text', album);
       }
     },
 
     _buildStars: function(value) {
-      value = Math.min(Math.max(0, value), 5);
+      // For Pithos versions without ratings support.
+      if (value.constructor === String) {
+        value = value == 'love' ? 5 : 0;
+      }
+      else {
+        value = Math.min(Math.max(0, value), 5);
+      }
       this._starIcon = [];
       for(let i=0; i < 5; i++) {
-        let icon_name = 'non-starred-symbolic';
-        if (i < value) {
-            icon_name = 'starred-symbolic';
-        }
-        // Create star icons
-        this._starIcon[i] = new St.Icon({style_class: 'popup-menu-icon star-icon',
-                                    icon_name: icon_name
-                                    });
-        this._ratingBox.add_child(this._starIcon[i]);
+        let icon_name = i < value ? 'starred-symbolic' : 'non-starred-symbolic';
+        this._starIcon[i] = new St.Icon({style_class: 'popup-menu-icon star-icon'});
+        this._ratingBox.add(this._starIcon[i]);
+        let starIcon = this._starIcon[i];
+        Mainloop.timeout_add(50 * i, Lang.bind(this, function() {
+          this._animateChange(starIcon, 'icon_name', icon_name);
+          return false;
+        }));
+        
       }
       this._rating = value;
     },
 
-  _setRating: function(value) {
-    value = Math.min(Math.max(0, value), 5);
+    _buildPithosRatings: function(rating) {
+      this._ratingBox.add_style_class_name('pithos-rating-box');
+      this._ratingsIcon = new St.Icon({style_class: 'popup-menu-icon no-padding'});
+      this._unRateButton = new St.Button({x_align: St.Align.MIDDLE,
+                                          y_align: St.Align.MIDDLE,
+                                          child: this._ratingsIcon
+                                         })
+      this._ratingBox.add(this._unRateButton, {y_align: St.Align.MIDDLE});
+      this._loveButton = new St.Button();
+      this._ratingBox.add(this._loveButton, {y_align: St.Align.MIDDLE});
+      this._banButton = new St.Button();
+      this._ratingBox.add(this._banButton, {y_align: St.Align.MIDDLE});
+      this._tiredButton = new St.Button();
+      this._ratingBox.add(this._tiredButton, {y_align: St.Align.MIDDLE});
+      this._unrateCallbackId = this._unRateButton.connect('clicked', Lang.bind(this, function() {
+        this._player._pithosRatings.UnRateSongRemote(this.obj);
+      }));
+      this._unRateButton.hide();
+      this._setPithosRating(rating);
+    },
+
+    _setPithosRating: function(rating) {
+      if (this._rating == rating) {
+        return;
+      }
+      if (this._loveCallbackId !== 0) {
+        this._loveButton.disconnect(this._loveCallbackId);
+      }
+      if (this._banCallbackId !== 0) {
+        this._banButton.disconnect(this._banCallbackId);
+      }
+      if (this._tiredCallbackId !== 0) {
+        this._tiredButton.disconnect(this._tiredCallbackId);
+      }
+      if (rating == '') {
+        this._ratingsIcon.icon_name = null;
+        this._unRateButton.hide();
+        this._loveButton.label = _("Love");
+        this._banButton.label = _("Ban");
+        this._tiredButton.label = _("Tired");
+        this._loveCallbackId = this._loveButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.LoveSongRemote(this.obj);
+        }));
+        this._banCallbackId = this._banButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.BanSongRemote(this.obj);
+        }));
+        this._tiredCallbackId = this._tiredButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.TiredSongRemote(this.obj);
+        }));
+      }
+
+      else if (rating == 'love') {
+        this._ratingsIcon.icon_name = 'emblem-favorite-symbolic'
+        this._unRateButton.show();
+        this._loveButton.label = _("UnLove");
+        this._banButton.label = _("Ban");
+        this._tiredButton.label = _("Tired");
+        this._loveCallbackId = this._loveButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.UnRateSongRemote(this.obj);
+        }));
+        this._banCallbackId = this._banButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.BanSongRemote(this.obj);
+        }));
+        this._tiredCallbackId = this._tiredButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.TiredSongRemote(this.obj);
+        }));
+      }
+      else if (rating == 'ban') {
+        this._ratingsIcon.icon_name = 'dialog-error-symbolic'
+        this._unRateButton.show();
+        this._loveButton.label = _("Love");
+        this._banButton.label = _("UnBan");
+        this._tiredButton.label = _("Tired");
+        this._loveCallbackId = this._loveButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.LoveSongRemote(this.obj);
+        }));
+        this._banCallbackId = this._banButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.UnRateSongRemote(this.obj);
+        }));
+        this._tiredCallbackId = this._tiredButton.connect('clicked', Lang.bind(this, function() {
+          this._player._pithosRatings.TiredSongRemote(this.obj);
+        }));
+      }
+      else if (rating == 'tired') {
+        if (this._unrateCallbackId !== 0) {
+          this._unRateButton.disconnect(this._unrateCallbackId);
+        }
+        // Once a song has been set tired it's rating can't be changed.
+        // No need to connect button signals.
+        this._ratingsIcon.icon_name = 'go-jump-symbolic';
+        this._unRateButton.show();
+        this._loveButton.label = _("Tired… (Can't be Changed)");
+        this._loveButton.reactive = false;
+        this._unRateButton.reactive = false;
+        this._banButton.hide();
+        this._tiredButton.hide();
+        this._unrateCallbackId = 0
+        this._loveCallbackId = 0;
+        this._banCallbackId = 0;
+        this._tiredCallbackId = 0;
+      }
+      this._box.set_width(-1);
+      this._rating = rating;
+    },
+
+  _setStarRating: function(value) {
+    // For Pithos versions without ratings support.
+    if (value.constructor === String) {
+      value = value == 'love' ? 5 : 0;
+    }
+    else {
+      value = Math.min(Math.max(0, value), 5);
+    }
     if (this._rating != value) {
       this._rating = value;
       for (let i = 0; i < 5; i++) {
-        let icon_name = 'non-starred-symbolic';
-        if (i < value) {
-            icon_name = 'starred-symbolic';
-        }
-        this._starIcon[i].icon_name = icon_name;
+        let icon_name = i < value ? 'starred-symbolic' : 'non-starred-symbolic';
+        let starIcon = this._starIcon[i];
+        Mainloop.timeout_add(50 * i, Lang.bind(this, function() {
+          this._animateChange(starIcon, 'icon_name', icon_name);
+          return false;
+        }));
       }
     }
   },
 
   showRatings: function(value) {
-    if (value) {
+    if (value && this._validRatings) {
+      this._albumLabel.hide();
       this._ratingBox.show();
-      this._coverIcon.icon_size = 48;
     }
     else {
       this._ratingBox.hide();
-      this._coverIcon.icon_size = 24;
+      this._albumLabel.show();
     }
   }
 

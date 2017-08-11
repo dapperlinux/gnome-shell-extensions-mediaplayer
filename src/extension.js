@@ -18,11 +18,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **/
 
-const Mainloop = imports.mainloop;
 const Main = imports.ui.main;
 const Gettext = imports.gettext.domain('gnome-shell-extensions-mediaplayer');
-const Gio = imports.gi.Gio;
-const GLib = imports.gi.GLib;
 const Me = imports.misc.extensionUtils.getCurrentExtension();
 const Lib = Me.imports.lib;
 const Manager = Me.imports.manager;
@@ -32,12 +29,12 @@ const Settings = Me.imports.settings;
 /* global values */
 let manager;
 let indicator;
-let _fileMonitor;
 let _stockMpris;
 let _stockMprisOldShouldShow;
 
 function init() {
   Lib.initTranslations(Me);
+  Lib.addIcon(Me);
   Settings.init();
   if (Settings.MINOR_VERSION > 19) {
     //Monkey patch
@@ -89,13 +86,11 @@ function disable() {
   manager = null;
   if (indicator instanceof Panel.PanelIndicator) {
     indicator.destroy();
-    indicator = null;
   }
   else {
     indicator.indicators.destroy();
-    Main.panel.statusArea.aggregateMenu.menu.actor.set_width(-1);
-    indicator = null;
   }
+  indicator = null;
   if (Settings.MINOR_VERSION > 19) {
     //Revert Monkey patch
     _stockMpris._shouldShow = _stockMprisOldShouldShow;
