@@ -23,6 +23,7 @@
 const Mainloop = imports.mainloop;
 const St = imports.gi.St;
 const Atk = imports.gi.Atk;
+const BoxPointer = imports.ui.boxpointer;
 const PopupMenu = imports.ui.popupMenu;
 const Slider = imports.ui.slider;
 const GLib = imports.gi.GLib;
@@ -40,7 +41,7 @@ const Util = Me.imports.util;
 const DBusIface = Me.imports.dbus;
 
 
-const SubMenu = new Lang.Class({
+var SubMenu = new Lang.Class({
     Name: 'SubMenu',
     Extends: PopupMenu.PopupMenuBase,
 
@@ -120,7 +121,7 @@ const SubMenu = new Lang.Class({
     }
 });
 
-const PlayerMenu = new Lang.Class({
+var PlayerMenu = new Lang.Class({
   Name: 'PlayerMenu',
   Extends: PopupMenu.PopupSubMenuMenuItem,
 
@@ -149,7 +150,7 @@ const PlayerMenu = new Lang.Class({
   }
 });
 
-const BaseContainer = new Lang.Class({
+var BaseContainer = new Lang.Class({
     Name: "BaseContainer",
     Extends: PopupMenu.PopupBaseMenuItem,
 
@@ -161,7 +162,7 @@ const BaseContainer = new Lang.Class({
       //they're not really menu items in the traditional sense.
       //We want to maintain the illusion that they are normal UI containers,
       //and that our main track UI area is one big container.
-      this.actor.add_style_pseudo_class = function() {return null;}
+      this.actor.add_style_pseudo_class = function() {return null;};
     },
 
     get hidden() {
@@ -233,7 +234,7 @@ const BaseContainer = new Lang.Class({
     }
 });
 
-const PlayerButtons = new Lang.Class({
+var PlayerButtons = new Lang.Class({
     Name: 'PlayerButtons',
     Extends: BaseContainer,
 
@@ -247,7 +248,7 @@ const PlayerButtons = new Lang.Class({
     }
 });
 
-const ShuffleLoopStatus = new Lang.Class({
+var ShuffleLoopStatus = new Lang.Class({
     Name: 'PlayerButtons',
     Extends: BaseContainer,
 
@@ -311,7 +312,7 @@ const ShuffleLoopStatus = new Lang.Class({
     }
 });
 
-const PlaylistTitle = new Lang.Class({
+var PlaylistTitle = new Lang.Class({
     Name: 'PlaylistTitle',
     Extends: BaseContainer,
 
@@ -328,7 +329,7 @@ const PlaylistTitle = new Lang.Class({
     }
 });
 
-const PlayerButton = new Lang.Class({
+var PlayerButton = new Lang.Class({
     Name: "PlayerButton",
 
     _init: function(icon, callback) {
@@ -383,7 +384,7 @@ const PlayerButton = new Lang.Class({
     }
 });
 
-const SliderItem = new Lang.Class({
+var SliderItem = new Lang.Class({
     Name: "SliderItem",
     Extends: BaseContainer,
 
@@ -413,7 +414,7 @@ const SliderItem = new Lang.Class({
     }
 });
 
-const TrackCover = new Lang.Class({
+var TrackCover = new Lang.Class({
     Name: "TrackBox",
     Extends: BaseContainer,
 
@@ -424,7 +425,7 @@ const TrackCover = new Lang.Class({
     }
 });
 
-const Info = new Lang.Class({
+var Info = new Lang.Class({
     Name: "SecondaryInfo",
     Extends: BaseContainer,
 
@@ -519,7 +520,7 @@ const Info = new Lang.Class({
     }
 });
 
-const TrackRating = new Lang.Class({
+var TrackRating = new Lang.Class({
     Name: "TrackRating",
     Extends: BaseContainer,
 
@@ -604,7 +605,7 @@ const TrackRating = new Lang.Class({
         this._unRateButton = new St.Button({x_align: St.Align.MIDDLE,
                                             y_align: St.Align.MIDDLE,
                                             child: this._ratingsIcon
-                                           })
+                                           });
         this.box.add(this._unRateButton);
         this._loveButton = new St.Button();
         this.box.add(this._loveButton);
@@ -649,7 +650,7 @@ const TrackRating = new Lang.Class({
              }));
          }
          else if (rating == 'love') {
-             this._ratingsIcon.icon_name = 'emblem-favorite-symbolic'
+             this._ratingsIcon.icon_name = 'emblem-favorite-symbolic';
              this._unRateButton.show();
              this._loveButton.label = _("UnLove");
              this._callbackId = this._loveButton.connect('clicked', Lang.bind(this, function() {
@@ -724,7 +725,7 @@ const TrackRating = new Lang.Class({
     }
 });
 
-const ListSubMenu = new Lang.Class({
+var ListSubMenu = new Lang.Class({
   Name: 'ListSubMenu',
   Extends: PopupMenu.PopupSubMenuMenuItem,
 
@@ -844,7 +845,7 @@ const ListSubMenu = new Lang.Class({
   }
 });
 
-const TrackList = new Lang.Class({
+var TrackList = new Lang.Class({
     Name: "Tracklist",
     Extends: ListSubMenu,
 
@@ -897,7 +898,7 @@ const TrackList = new Lang.Class({
 
 });
 
-const Playlists = new Lang.Class({
+var Playlists = new Lang.Class({
     Name: "Playlists",
     Extends: ListSubMenu,
 
@@ -941,7 +942,7 @@ const Playlists = new Lang.Class({
 
 });
 
-const PlaylistItem = new Lang.Class({
+var PlaylistItem = new Lang.Class({
     Name: "PlaylistItem",
     Extends: PopupMenu.PopupBaseMenuItem,
 
@@ -960,7 +961,7 @@ const PlaylistItem = new Lang.Class({
 
 });
 
-const TracklistItem = new Lang.Class({
+var TracklistItem = new Lang.Class({
     Name: "TracklistItem",
     Extends: PopupMenu.PopupBaseMenuItem,
 
@@ -1078,7 +1079,7 @@ const TracklistItem = new Lang.Class({
       this._unRateButton = new St.Button({x_align: St.Align.MIDDLE,
                                           y_align: St.Align.MIDDLE,
                                           child: this._ratingsIcon
-                                         })
+                                         });
       this._ratingBox.add(this._unRateButton, {y_align: St.Align.MIDDLE});
       this._loveButton = new St.Button();
       this._ratingBox.add(this._loveButton, {y_align: St.Align.MIDDLE});
@@ -1124,7 +1125,7 @@ const TracklistItem = new Lang.Class({
       }
 
       else if (rating == 'love') {
-        this._ratingsIcon.icon_name = 'emblem-favorite-symbolic'
+        this._ratingsIcon.icon_name = 'emblem-favorite-symbolic';
         this._unRateButton.show();
         this._loveButton.label = _("UnLove");
         this._banButton.label = _("Ban");
@@ -1140,7 +1141,7 @@ const TracklistItem = new Lang.Class({
         }));
       }
       else if (rating == 'ban') {
-        this._ratingsIcon.icon_name = 'dialog-error-symbolic'
+        this._ratingsIcon.icon_name = 'dialog-error-symbolic';
         this._unRateButton.show();
         this._loveButton.label = _("Love");
         this._banButton.label = _("UnBan");
@@ -1168,7 +1169,7 @@ const TracklistItem = new Lang.Class({
         this._unRateButton.reactive = false;
         this._banButton.hide();
         this._tiredButton.hide();
-        this._unrateCallbackId = 0
+        this._unrateCallbackId = 0;
         this._loveCallbackId = 0;
         this._banCallbackId = 0;
         this._tiredCallbackId = 0;

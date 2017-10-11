@@ -52,7 +52,9 @@ const Creators = [
     {label: 'Jason Gray',
      url: 'https://github.com/JasonLG1979'},
     {label: 'Bilal Elmoussaoui',
-     url: 'https://github.com/bil-elmoussaoui'}    
+     url: 'https://github.com/bil-elmoussaoui'},
+    {label: 'Alexander Rüedlinger',
+     url: 'https://github.com/lexruee'}    
 ];
 
 const Artists = [
@@ -76,6 +78,7 @@ const Settings = {
         tab: "i",
         label: _("Indicator Position"),
         list: [
+            {nick: 'left', name: _("Left"), id: 3},
             {nick: 'center', name: _("Center"), id: 0},
             {nick: 'right', name: _("Right"), id: 1},
             {nick: 'volume-menu', name: _("System menu"), id: 2}
@@ -97,6 +100,11 @@ const Settings = {
         max: 900,
         step: 5,
         default: 300
+    },
+    'play-state-icon': {
+        type: "b",
+        tab: "i",
+        label: _("Show the Indicator Player State Icon")
     },
     'button-icon-style': {
         type: "e",

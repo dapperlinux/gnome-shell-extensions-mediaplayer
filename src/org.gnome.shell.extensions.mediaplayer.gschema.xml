@@ -1,5 +1,6 @@
 <schemalist gettext-domain="gnome-shell-extensions-mediaplayer">
   <enum id='org.gnome.shell.extensions.mediaplayer.positions'>
+    <value nick='left' value='3'/>
     <value nick='center' value='0'/>
     <value nick='right' value='1'/>
     <value nick='volume-menu' value='2'/>
@@ -72,6 +73,11 @@
         <default>300</default>
         <summary>Status text size</summary>
         <description>The the maximum width before the title gets an ellipsis. Default is 300px.</description>
+    </key>
+    <key name="play-state-icon" type="b">
+        <default>true</default>
+        <summary>Show a play state icon in the indicator</summary>
+        <description>Show a play state icon in the indicator.</description>
     </key>
     <key name="volumemenu" type="b">
         <default>true</default>

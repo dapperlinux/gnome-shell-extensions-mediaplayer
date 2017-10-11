@@ -35,7 +35,7 @@ const Settings = Me.imports.settings;
 const Util = Me.imports.util;
 
 
-const PlayerState = new Lang.Class({
+var PlayerState = new Lang.Class({
   Name: 'PlayerState',
 
   _init: function(params) {
@@ -109,7 +109,7 @@ const PlayerState = new Lang.Class({
 });
 
 
-const MPRISPlayer = new Lang.Class({
+var MPRISPlayer = new Lang.Class({
     Name: 'MPRISPlayer',
 
     _init: function(busName, owner) {
@@ -536,7 +536,7 @@ const MPRISPlayer = new Lang.Class({
             // for the new position.
             else {
               let newState = new PlayerState();
-              this._refreshProperties(newState)
+              this._refreshProperties(newState);
             }
           }
         }));
@@ -679,6 +679,10 @@ const MPRISPlayer = new Lang.Class({
       return canPause;
     },
 
+    get canQuit() {
+      return this._mediaServer.CanQuit || false;
+    },
+
     get canSeek() {
       return this._mediaServerPlayer.CanSeek || false;
     },
@@ -738,13 +742,13 @@ const MPRISPlayer = new Lang.Class({
     },
 
     get desktopEntry() {
-      return this._mediaServer.DesktopEntry || ''
+      return (this._mediaServer.DesktopEntry || '');
     },
 
     get activePlaylist() {
       let activePlaylist = this._mediaServerPlaylists.ActivePlaylist;
       if (activePlaylist === null || !activePlaylist || !activePlaylist[1]) {
-        activePlaylist = [null, null]
+        activePlaylist = [null, null];
       }
       else {
         activePlaylist = activePlaylist[1];
@@ -848,6 +852,12 @@ const MPRISPlayer = new Lang.Class({
       }
       else if (this._mediaServer.CanRaise) {
         this._mediaServer.RaiseRemote();
+      }
+    },
+
+    quit: function() {
+      if (this.canQuit) {
+        this._mediaServer.QuitRemote();
       }
     },
 
@@ -1036,7 +1046,7 @@ const MPRISPlayer = new Lang.Class({
       // properties refresh and don't need to do it again. 
       if (!newState.timeFresh) {
         let newState = new PlayerState();
-        this._refreshProperties(newState)
+        this._refreshProperties(newState);
       }
       if (this.state.status == Settings.Status.PLAY) {
         this._startTimer();

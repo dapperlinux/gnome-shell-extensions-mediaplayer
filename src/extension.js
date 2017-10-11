@@ -41,7 +41,9 @@ function init() {
     _stockMpris = Main.panel.statusArea.dateMenu._messageList._mediaSection;
     _stockMprisOldShouldShow = _stockMpris._shouldShow;
   }
-  Settings.gsettings.connect("changed::" + Settings.MEDIAPLAYER_INDICATOR_POSITION_KEY, function() {_reset()}); 
+  Settings.gsettings.connect("changed::" + Settings.MEDIAPLAYER_INDICATOR_POSITION_KEY, function() {
+    _reset();
+  });
 }
 
 function _reset() {
@@ -67,8 +69,10 @@ function enable() {
   }
 
   manager = new Manager.PlayerManager(menu, desiredMenuPosition);
-
-  if (position == Settings.IndicatorPosition.RIGHT) {
+  if (position == Settings.IndicatorPosition.LEFT) {
+    Main.panel.addToStatusArea('mediaplayer', indicator, 999, 'left');
+  }
+  else if (position == Settings.IndicatorPosition.RIGHT) {
     Main.panel.addToStatusArea('mediaplayer', indicator);
   }
   else if (position == Settings.IndicatorPosition.CENTER) {
