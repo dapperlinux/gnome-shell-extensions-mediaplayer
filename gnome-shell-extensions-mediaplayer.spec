@@ -1,6 +1,6 @@
 Name:       gnome-shell-extensions-mediaplayer
 Version:    3.24
-Release:    2
+Release:    3
 Summary:    A mediaplayer indicator for gnome-shell
 URL:        https://github.com/eonpatapon/gnome-shell-extensions-mediaplayer
 License:    GPLv2
