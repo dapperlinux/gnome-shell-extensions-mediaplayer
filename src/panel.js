@@ -55,10 +55,10 @@ const IndicatorMixin = {
     if (Settings.gsettings.get_boolean(Settings.MEDIAPLAYER_ENABLE_SCROLL_EVENTS_KEY)) {
       switch (event.get_scroll_direction()) {
         case Clutter.ScrollDirection.UP:
-          this.manager.activePlayer.previous();
+          this.manager.activePlayer.next();
         break;
         case Clutter.ScrollDirection.DOWN:
-          this.manager.activePlayer.next();
+          this.manager.activePlayer.previous();
         break;
       }
     }
@@ -139,7 +139,8 @@ const IndicatorMixin = {
     else if (state.playerName || state.trackTitle || state.trackArtist || state.trackAlbum) {
       let stateText = this.compileTemplate(this._stateTemplate, state);
       if (this._stateText != stateText) {
-        this._thirdIndicator.clutter_text.set_markup(stateText);
+        this._stateText = stateText;
+        this._thirdIndicator.clutter_text.set_markup(this._stateText);
         this._thirdIndicator.set_width(-1);
         this._statusTextWidth = this._thirdIndicator.get_width();
       }
