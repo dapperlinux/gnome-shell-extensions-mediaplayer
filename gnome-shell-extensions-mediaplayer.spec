@@ -1,5 +1,5 @@
 Name:       gnome-shell-extensions-mediaplayer
-Version:    3.28
+Version:    3.30
 Release:    1
 Summary:    A mediaplayer indicator for gnome-shell
 URL:        https://github.com/eonpatapon/gnome-shell-extensions-mediaplayer
